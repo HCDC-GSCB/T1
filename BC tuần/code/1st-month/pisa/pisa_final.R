@@ -1,7 +1,10 @@
 library(tidyverse)
 library(readxl)
 library(scales)
-
+library(surveillance)
+library(googlesheets4)
+library(googledrive)
+library(patchwork)
 # FUNCTIONS ######
 
 # --- Hàm phụ trợ: Dịch chuyển vòng tròn (cho biểu đồ độ nặng) ---
@@ -88,7 +91,7 @@ plot_transmission <- function(df_curr, thresholds, current_year_col, disease_nam
   return(p)
 }
 
-# --- Hàm 3: Xử lý dữ liệu Nội trú (Đã bỏ ca nặng) ---
+# --- Hàm 3: Xử lý dữ liệu Nội trú  ---
 process_inpatient_data <- function(df_inpatient, hist_years, current_year_col) {
   # 1. Xử lý lịch sử (Alignment)
   df_hist <- df_inpatient %>% 
@@ -129,25 +132,32 @@ process_inpatient_data <- function(df_inpatient, hist_years, current_year_col) {
   
   return(df_final)
 }
-
-# --- Hàm 4: Vẽ biểu đồ Nội trú (Trục đơn - Đã bỏ ca nặng) ---
-plot_inpatient <- function(df_processed, y_lab = "Số ca nội trú") {
+# --- Hàm 4: Vẽ biểu đồ Nội trú (Đã tối ưu dynamic legend) ---
+plot_inpatient <- function(df_processed, disease_name = "", y_lab = "Số ca nội trú") {
   
   last_row <- tail(df_processed, 1)
   
-  # Tính toán y_max để khung hình đủ chỗ cho nhãn Rất cao
+  # Tạo nhãn legend động
+  # VD: Nếu disease_name = "Sốt xuất huyết" -> "Số ca Sốt xuất huyết nội trú"
+  legend_label <- if(disease_name != "") paste("Số ca", disease_name, "nội trú") else "Số ca nội trú"
+  
+  # Tạo vector màu động khớp với nhãn
+  # Đây là trick để ggplot hiểu đúng mapping màu khi tên thay đổi
+  fill_colors <- setNames("#ADD8E6", legend_label)
+  
+  # Tính toán y_max
   y_max <- max(c(df_processed$Limit_High, df_processed$Inpatient), na.rm = TRUE) * 1.15
   
   ggplot(df_processed, aes(x = Week)) +
-    # Cột nội trú
-    geom_col(aes(y = Inpatient, fill = "Số ca nội trú"), color = "black", alpha = 0.4, width = 1) +
+    # Cột nội trú: Sử dụng legend_label thay vì string cứng
+    geom_col(aes(y = Inpatient, fill = legend_label), color = "black", alpha = 0.4, width = 1) +
     
     # Các đường ngưỡng
     geom_line(aes(y = Limit_Low, color = "Trung bình"), linewidth = 1) +
     geom_line(aes(y = Limit_Mod, color = "Trung bình + 1SD"), linewidth = 1) +
     geom_line(aes(y = Limit_High, color = "Trung bình + 3SD"), linewidth = 1) +
     
-    # Nhãn ngưỡng
+    # Nhãn ngưỡng (Giữ nguyên)
     annotate("text", x = 53, y = last_row$Limit_Low/2, label = "Thấp", color = "#fddc10", fontface = "bold", hjust = 0) +
     annotate("text", x = 53, y = (last_row$Limit_Low + last_row$Limit_Mod)/2, label = "Vừa", color = "#FF8C00", fontface = "bold", hjust = 0) +
     annotate("text", x = 53, y = (last_row$Limit_Mod + last_row$Limit_High)/2, label = "Cao", color = "red", fontface = "bold", hjust = 0) +
@@ -159,32 +169,40 @@ plot_inpatient <- function(df_processed, y_lab = "Số ca nội trú") {
       expand = c(0, 0), 
       limits = c(0, y_max)
     ) +
-    scale_x_continuous(breaks = seq(1, 52, by = 4), expand = expansion(mult = c(0, 0.15))) +
-    scale_fill_manual(name = "", values = c("Số ca nội trú" = "#ADD8E6")) +
+    scale_x_continuous(breaks = seq(1, 52, by = 4), expand = expansion(mult = c(0.02, 0.15))) +
+    
+    # Truyền vector màu động vào đây
+    scale_fill_manual(name = "", values = fill_colors) +
+    
     scale_color_manual(name = "", 
                        values = c("Trung bình"="#FF8C00", 
                                   "Trung bình + 1SD"="red", 
                                   "Trung bình + 3SD"="#800080")) +
     labs(x = "Tuần") +
-    theme_classic(base_size = 20,base_family = "serif") +
+    theme_classic(base_size = 20, base_family = "serif") +
     theme(
       legend.position = "bottom",
       axis.title = element_text(face = "bold"),
       axis.text = element_text(color = "black"),
       legend.text = element_text(size = 20)
-      
     )
 }
 
+
+load_data <- function(url, sheet) {
+  gs4_deauth()
+  df <- read_sheet(url, sheet = sheet)
+  return(df)
+}
 # RUN TCM #########
 
 # --- CẤU HÌNH CHUNG ---
-file_path <- "G:/My Drive/WORKING/HCDC/CHUYÊN MÔN/1. BÁO CÁO CHUYÊN MÔN/BÁO CÁO IBS/T1/pisa/hfmd.xlsx"
-years_hist <- c("2024.0", "2022.0", "2020.0", "2019.0", "2017.0")
-curr_year_col <- "2026.0"
+file_path <- "https://docs.google.com/spreadsheets/d/1jSAuGFUkcHBL5iie999qn7ClW2dTYB3AOSOaRwOBCGY/edit?gid=552422139#gid=552422139"
+years_hist <- c("2024", "2022", "2020", "2019", "2017")
+curr_year_col <- "2026"
 
 # 1. BIỂU ĐỒ ĐỘ LÂY TRUYỀN 
-df_ca <- read_excel(file_path, sheet = "ca")
+df_ca <- load_data(url = file_path, sheet = "ca")
 thresholds_trans <- calc_transmission_thresholds(df_ca, years_hist)
 p_trans <- plot_transmission(df_curr = df_ca, 
                              thresholds = thresholds_trans, 
@@ -195,25 +213,25 @@ ggsave("hfmd-t-tp.svg", p_trans, width = 14, height = 7, dpi = 300)
 
 # 2. BIỂU ĐỒ NỘI TRÚ 
 
-df_noi <- read_excel(file_path, sheet = "noi")
-
+df_noi <- load_data(file_path, sheet = "noi")
 df_inpatient_ready <- process_inpatient_data(df_inpatient = df_noi, 
                                              hist_years = years_hist, 
-                                            current_year_col = curr_year_col)
+                                             current_year_col = curr_year_col)
 
-p_inp <- plot_inpatient(df_inpatient_ready)
+
+p_inp <- plot_inpatient(df_inpatient_ready, disease_name = "tay chân miệng")
 
 print(p_inp)
 ggsave("hfmd-s-tp.svg", p_inp, width = 14, height = 7, dpi = 300)
 
 # RUN SXH #########
 # --- CẤU HÌNH CHUNG ---
-file_path <- "G:/My Drive/WORKING/HCDC/CHUYÊN MÔN/1. BÁO CÁO CHUYÊN MÔN/BÁO CÁO IBS/T1/pisa/dengue.xlsx"
-years_hist <- c("2024.0", "2023.0", "2020.0", "2017.0", "2016.0")
-curr_year_col <- "2026.0"
+file_path <- "https://docs.google.com/spreadsheets/d/13_o7NAlfBjckO6PspzITbWhlkWbfp4eKkqYCa7Dvvgg/edit?usp=sharing"
+years_hist <- c("2024", "2023", "2020", "2017", "2016")
+curr_year_col <- "2026"
 
-# 1. BIỂU ĐỒ ĐỘ LÂY TRUYỀN 
-df_ca <- read_excel(file_path, sheet = "ca")
+# 1. BIỂU ĐỒ ĐỘ LÂY TRUYỀN
+df_ca <- load_data(file_path, sheet = "ca")
 thresholds_trans <- calc_transmission_thresholds(df_ca, years_hist)
 p_trans <- plot_transmission(df_curr = df_ca, 
                              thresholds = thresholds_trans, 
@@ -224,17 +242,16 @@ ggsave("dengue-t-tp.svg", p_trans, width = 14, height = 7, dpi = 300)
 
 # 2. BIỂU ĐỒ NỘI TRÚ 
 
-df_noi <- read_excel(file_path, sheet = "noi")
+df_noi <- load_data(file_path, sheet = "noi")
 
 df_inpatient_ready <- process_inpatient_data(df_inpatient = df_noi, 
                                              hist_years = years_hist, 
                                              current_year_col = curr_year_col)
 
-p_inp <- plot_inpatient(df_inpatient_ready)
+p_inp <- plot_inpatient(df_inpatient_ready, disease_name = "sốt xuất huyết")
 
 print(p_inp)
 ggsave("dengue-s-tp.svg", p_inp, width = 14, height = 7, dpi = 300)
-
 
 
 # CA NẶNG ################
@@ -267,27 +284,35 @@ process_severe_simple <- function(df, hist_years, current_year_col) {
 
 # ==============================================================================
 # 2. HÀM VẼ BIỂU ĐỒ ĐƠN GIẢN
-# ==============================================================================
-plot_severe_simple <- function(df_data, y_lab = "Số ca nặng") {
+plot_severe_simple <- function(df_data, disease_name = "", y_lab = "Số ca nặng") {
   
-  # Tính y_max để biểu đồ thoáng
+  # 1. Tạo nhãn legend động
+  # VD: "Số ca Tay chân miệng nặng"
+  legend_label <- if(disease_name != "") paste("Số ca", disease_name, "nặng") else "Số ca nặng"
+  
+  # 2. Tạo mapping màu động
+  # Gán màu #ADD8E6 cho nhãn vừa tạo
+  fill_colors <- setNames("#ADD8E6", legend_label)
+  
+  # Tính y_max
   y_max <- max(c(df_data$Current, df_data$Threshold), na.rm = TRUE) * 1.2
   if(y_max == 0) y_max <- 5
   
   ggplot(df_data, aes(x = Week)) +
-    # 1. Cột số ca bệnh
-    geom_col(aes(y = Current, fill = "Số ca nặng"), width = 0.8, alpha = 0.7) +
+    # --- Thay đổi: dùng biến legend_label cho fill ---
+    geom_col(aes(y = Current, fill = legend_label), width = 0.8, alpha = 0.7) +
     
-    # 2. Đường ngưỡng Mean + 2SD
+    # Đường ngưỡng (Giữ nguyên)
     geom_line(aes(y = Threshold, color = "Ngưỡng (TB + 2SD)"), linewidth = 1) +
     
     # Trang trí
     scale_y_continuous(expand = c(0, 0), limits = c(0, y_max)) +
     scale_x_continuous(breaks = seq(1, 52, by = 4), expand = expansion(mult = c(0.02, 0.02))) +
     
-    # Màu sắc
-    scale_fill_manual(name = "", values = c("Số ca nặng" = "#ADD8E6")) + # Màu cam đậm
-    scale_color_manual(name = "", values = c("Ngưỡng (TB + 2SD)" = "#000000")) + # Đường màu đen
+    # --- Thay đổi: truyền vector màu động vào values ---
+    scale_fill_manual(name = "", values = fill_colors) +
+    
+    scale_color_manual(name = "", values = c("Ngưỡng (TB + 2SD)" = "#000000")) + 
     
     labs(x = "Tuần", y = y_lab) +
     theme_classic(base_size = 14, base_family = "serif") +
@@ -298,32 +323,34 @@ plot_severe_simple <- function(df_data, y_lab = "Số ca nặng") {
     )
 }
 
-# ==============================================================================
 # 3. THỰC THI (CHẠY CHO CẢ 2 BỆNH)
-# ==============================================================================
-
 # --- CẤU HÌNH ---
-curr_year_col <- "2026.0"
+curr_year_col <- "2026"
 
 # --- A. TAY CHÂN MIỆNG (HFMD) ---
-file_path_hfmd <- "G:/My Drive/WORKING/HCDC/CHUYÊN MÔN/1. BÁO CÁO CHUYÊN MÔN/BÁO CÁO IBS/T1/pisa/hfmd.xlsx"
-years_hist_hfmd <- c("2024.0", "2022.0", "2020.0", "2019.0", "2017.0")
+file_path_hfmd <- "https://docs.google.com/spreadsheets/d/1jSAuGFUkcHBL5iie999qn7ClW2dTYB3AOSOaRwOBCGY/edit?gid=552422139#gid=552422139"
+years_hist_hfmd <- c("2024", "2022", "2020", "2019", "2017")
 
-df_nang_hfmd <- read_excel(file_path_hfmd, sheet = "nang")
+df_nang_hfmd <- load_data(file_path_hfmd, sheet = "nang")
 df_ready_hfmd <- process_severe_simple(df_nang_hfmd, years_hist_hfmd, curr_year_col)
 
-p_hfmd <- plot_severe_simple(df_ready_hfmd, y_lab = "Số ca nặng (>= độ 2b)")
+p_hfmd <- plot_severe_simple(df_ready_hfmd, 
+                             disease_name = "tay chân miệng", 
+                             y_lab = "Số ca nặng (>= độ 2b)")
+
 print(p_hfmd)
 ggsave("hfmd_severe_simple.svg", p_hfmd, width = 10, height = 6)
 
 
 # --- B. SỐT XUẤT HUYẾT (DENGUE) ---
-file_path_dengue <- "G:/My Drive/WORKING/HCDC/CHUYÊN MÔN/1. BÁO CÁO CHUYÊN MÔN/BÁO CÁO IBS/T1/pisa/dengue.xlsx"
-years_hist_dengue <- c("2024.0", "2023.0", "2020.0", "2017.0", "2016.0")
+file_path_dengue <- "https://docs.google.com/spreadsheets/d/13_o7NAlfBjckO6PspzITbWhlkWbfp4eKkqYCa7Dvvgg/edit?usp=sharing"
+years_hist_dengue <- c("2024", "2023", "2020", "2017", "2016")
 
-df_nang_dengue <- read_excel(file_path_dengue, sheet = "nang")
+df_nang_dengue <- load_data(file_path_dengue, sheet = "nang")
 df_ready_dengue <- process_severe_simple(df_nang_dengue, years_hist_dengue, curr_year_col)
 
-p_dengue <- plot_severe_simple(df_ready_dengue, y_lab = "Số ca nặng SXH")
+p_dengue <- plot_severe_simple(df_ready_dengue, 
+                               disease_name = "sốt xuất huyết", 
+                               y_lab = "Số ca nặng SXH")
 print(p_dengue)
 ggsave("dengue_severe_simple.svg", p_dengue, width = 10, height = 6)

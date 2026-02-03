@@ -5,6 +5,7 @@ library(googlesheets4)
 library(googledrive)
 library(patchwork)
 
+##Load data
 load_data <- function(url, sheet) {
   gs4_deauth()
   df <- read_sheet(url, sheet = sheet)
@@ -49,7 +50,7 @@ remake <- function(df, ref_years) {
 
 ## Run Farrington or CUSUM
 run_algo <- function(df, ref_years, method = c("farrington", "cusum"),
-                     start_year = 2016, start_week = 1, range_weeks = 261:312,
+                     start_year = 2020, start_week = 1, range_weeks = 261:312,
                      cusum_k = 1.04, cusum_h = 2.26) {
   
   method <- match.arg(method)
@@ -92,71 +93,75 @@ theme_an <- function() {
     )
 }
 
+##Extract week
+extract_week <- function(df_tail, df_head){
+  df_tail <- df_tail %>% 
+    filter(year==2025) %>% 
+    filter(week > 44)
+  
+  df_head <- df_head %>% 
+    filter(week < 45)
+  df_combined <- bind_rows(df_tail, df_head) %>% 
+    mutate(
+      time_index = 1:n(),
+      label = paste0(week)
+    )
+  return(df_combined)
+}
 
-## Plot 
-plot_algo_dual <- function(df, farrington, cusum, year_target, 
-                           week_target, seasonal, ref_years) {
+##Plot
+plot_algo_combined <- function(df_combined, seasonal, ref_years, ten_benh = "Sốt xuất huyết") {
   
-  df_target <- df %>% filter(year == year_target & week <= week_target) %>% 
-    select(week, cases, cdc, outbreak_cdc)
+  idx <- seq(1, nrow(df_combined), by = 3)
   
-  df_target$farrington <- farrington$upperbound[1:week_target,]
-  df_target$outbreak_f <- farrington$alarm[1:week_target,]
+  # 1. Xử lý trục tung: Làm tròn y_max lên bội số của 500 để chia vạch đẹp hơn
+  y_max_raw <- max(c(df_combined$cdc, df_combined$farrington_ub, 
+                     df_combined$cusum_ub, df_combined$cases, seasonal), na.rm = TRUE)
+  y_max <- ceiling(y_max_raw / 500) * 500 
   
-  df_target$cusum <- cusum$upperbound[1:week_target]
-  df_target$outbreak_c <- cusum$alarm[1:week_target]
+  # 2. Tạo cột giả lập tên bệnh để đưa vào chú thích (Legend)
+  df_combined$Legend_Label <- ten_benh
   
-  y_max <- max(c(df_target$cdc, df_target$farrington, df_target$cusum, df_target$cases, seasonal), na.rm = TRUE)
- 
-  p <- ggplot() + 
+  p <- ggplot(data = df_combined) + 
+    # Cập nhật: Đưa fill vào trong aes() và gán bằng tên bệnh
+    geom_col(aes(x = time_index, y = cases, fill = Legend_Label),
+             color = "black", width = 1, alpha = 0.4) +
     
-    geom_col(data = df_target, aes(x = week, y = cases),
-             fill = "steelblue", 
-             color = "black",   # Màu viền ngăn cách các cột
-             width = 1,         # <--- QUAN TRỌNG: Để cột liền nhau
-             alpha = 0.4) +
-    
-    geom_line(data = df_target, aes(x = week, y = farrington), color = "#E41A1C", size = 1) +
-    geom_line(data = df_target, aes(x = week, y = cdc, color = "Mean+2SD"), , size = 1) +
+    # Các đường ngưỡng (giữ nguyên)
+    geom_line(aes(x = time_index, y = farrington_ub), color = "#E41A1C", size = 1) +
+    geom_line(aes(x = time_index, y = cdc, color = "Mean+2SD"), size = 1) +
     geom_hline(aes(yintercept = seasonal, color = "Ngưỡng mùa"), 
                linetype = "dashed", size = 1) +
     
-    geom_point(data = filter(df_target, outbreak_f == 1),
-               aes(x = week, y = cases/2, color = "Farrington"),
+    # Các điểm cảnh báo (giữ nguyên)
+    geom_point(data = filter(df_combined, outbreak_f == 1),
+               aes(x = time_index, y = cases/2, color = "Farrington"),
                size = 3, shape = 17, stroke = 1.2) +
-    geom_point(data = filter(df_target, outbreak_c == 1),
-               aes(x = week, y = cases/4, color = "CUSUM"),
+    geom_point(data = filter(df_combined, outbreak_c == 1),
+               aes(x = time_index, y = cases/4, color = "CUSUM"),
                size = 3, shape = 17, stroke = 1.2) +
-    geom_point(data = filter(df_target, outbreak_cdc == 1),
-               aes(x = week, y = cases), color = "#4DAF4A",
+    geom_point(data = filter(df_combined, outbreak_cdc == 1),
+               aes(x = time_index, y = cases), color = "#4DAF4A", 
                size = 3, shape = 17, stroke = 1.2) +
     
-    scale_x_continuous(breaks = seq(1, week_target, 4)) +
-    scale_y_continuous(limits = c(0, y_max),
-                       #breaks = seq(0,y_max,500),
-                       expand = c(0,0)) +
+    # Trục X
+    scale_x_continuous(breaks = df_combined$time_index[idx], labels = df_combined$label[idx]) +
     
-    labs(
-      x = "Tuần", 
-      y = "Số ca bệnh"
-      , caption = paste("Năm lịch sử:", paste(ref_years, collapse = ", "))
-    ) +
+    # Cập nhật: Trục Y chia nhỏ mỗi 500 đơn vị
+    scale_y_continuous(limits = c(0, y_max), expand = c(0,0),
+                       breaks = seq(0, y_max, by = 500)) +
     
-    scale_color_manual(
-      name = "",
-      values = c(
-        "Farrington" = "#E41A1C",
-        "CUSUM" = "orange",
-        "Mean+2SD" = "#4DAF4A",
-        "Ngưỡng mùa" = "black"
-      )
-    ) +
-    theme_an() +
-    theme(
-      plot.caption = element_text(hjust = 0, family = "Times New Roman", size = 10, color = "black")
-    )
+    labs(x = "Tuần", y = "Số ca bệnh",
+         caption = paste("Năm lịch sử:", paste(ref_years, collapse = ", "))) +
+    
+    # Cập nhật: Thêm scale_fill_manual cho cột
+    scale_fill_manual(name = "", values = "steelblue") +
+    
+    scale_color_manual(name = "",
+                       values = c("Farrington" = "#E41A1C", "CUSUM" = "orange", 
+                                  "Mean+2SD" = "#4DAF4A", "Ngưỡng mùa" = "black")) +
+    theme_an() + 
+    theme(plot.caption = element_text(hjust = 0, family = "Times New Roman", size = 10, color = "black"))
   
   return(p)
 }
-
-

@@ -3,9 +3,9 @@ pacman::p_load(tidyverse, readxl, surveillance, stringi, gt,
                googlesheets4, googledrive, cartogram)
 # PHẦN 1: SETUP & LOAD DATA 
 NAM_BAO_CAO  <- 2026
-TUAN_BAO_CAO <- 5
+TUAN_BAO_CAO <- 4
 
-YEARS_TCM <- c( 2017, 2019, 2020, 2022, 2024, NAM_BAO_CAO) 
+YEARS_TCM <- c( 2016, 2017,2020, 2023, 2024, NAM_BAO_CAO) 
 YEARS_SXH <- c( 2016, 2017,2020, 2023, 2024, NAM_BAO_CAO)
 
 standardize_name_func <- function(x) {
@@ -23,8 +23,7 @@ df_danso <- load_data("https://docs.google.com/spreadsheets/d/1ZlfExROncZcCpm8Lz
   rename(Phuong = ward, DanSo = danso) %>% 
   mutate(phuong_clean = standardize_name_func(Phuong))
 
-# PHẦN 2: LIỆU FULL 52 TUẦN
-# --- Function chạy thuật toán (Không đổi) ---
+# PHẦN 2: --- Function chạy thuật toán  ---
 run_algo_core <- function(d_ward, t_years) {
   if(nrow(d_ward) != t_years * 52) return(NULL) 
   
@@ -133,7 +132,7 @@ render_gt_report <- function(df_full_year, disease_name, report_week, filename) 
 # XUẤT BÁO CÁO #######
 # --- 1. TCM ---
 # Nhập data
-df_tcm_raw <- load_data("https://docs.google.com/spreadsheets/d/1H8E1Ou7HplqMPS09-ctHmtHM-1e18tUPFO0FTDguons/edit?gid=1402026268#gid=1402026268", sheet = "all")
+df_tcm_raw <- load_data("https://docs.google.com/spreadsheets/d/1H8E1Ou7HplqMPS09-ctHmtHM-1e18tUPFO0FTDguons/edit?gid=1402026268#gid=1402026268", sheet = "all_time")
 # Xuất dữ liệu đầy đủ
 df_final_tcm <- process_full_year_data(df_tcm_raw, df_danso, YEARS_TCM) 
 # Tạo bảng
@@ -142,18 +141,29 @@ print(gt_tcm)
 
 # --- 2. SXH ---
 # Nhập data
-df_sxh_raw <- load_data("https://docs.google.com/spreadsheets/d/1Qg5zNehb86sRHaDWRdVrQPz_s9R0g0GbEV9lOajSBkw/edit?usp=sharing", sheet = "all")
+df_sxh_raw <- load_data("https://docs.google.com/spreadsheets/d/1Qg5zNehb86sRHaDWRdVrQPz_s9R0g0GbEV9lOajSBkw/edit?usp=sharing", sheet = "all_time")
 # Xuất dữ liệu đầy đủ
 df_final_sxh <- process_full_year_data(df_sxh_raw, df_danso, YEARS_SXH)
 # Tạo bảng
 gt_sxh <- render_gt_report(df_final_sxh, "SXH", TUAN_BAO_CAO, paste0("BaoCao_SXH_Tuan_", TUAN_BAO_CAO, ".docx"))
 print(gt_sxh)
 
+# Số phường cảnh báo
+df_trong_bang <- gt_sxh[["_data"]]
+
+so_luong_canh_bao_kep <- sum(df_trong_bang$F_Display == "(+)" & df_trong_bang$C_Display == "(+)")
+
+print(so_luong_canh_bao_kep)
+
 # MA TRẬN ===========================================
 export_matrix <- function(df_full, disease_name) {
   
+  # --- SỬA ĐỔI TẠI ĐÂY: Gộp STT vào tên Phường ngay từ đầu ---
+  df_full <- df_full %>% 
+    mutate(Phuong = paste(STT, Phuong, sep = ". "))
+  
   # 1. TÍNH TOÁN & SẮP XẾP
-  # Tính tổng ca để xếp hạng phường
+  # Tính tổng ca để xếp hạng phường (Lúc này tên Phường đã có STT)
   ward_rank <- df_full %>%
     group_by(Phuong) %>%
     summarise(Total = sum(SoCa, na.rm = TRUE)) %>%
@@ -161,11 +171,10 @@ export_matrix <- function(df_full, disease_name) {
     pull(Phuong)
   
   # --- QUAN TRỌNG: Lấy giá trị cao nhất của TOÀN BỘ dữ liệu ---
-  # Việc này giúp thang màu cố định từ 0 đến max_val cho tất cả các trang
   max_val <- max(df_full$SoCa, na.rm = TRUE)
   
   # 2. CHIA TRANG (43 phường/trang)
-  chunks <- split(ward_rank, ceiling(seq_along(ward_rank) / 43))
+  chunks <- split(ward_rank, ceiling(seq_along(ward_rank) / 56))
   
   # 3. VẼ & XUẤT FILE
   iwalk(chunks, function(wards_batch, page_idx) {
@@ -179,18 +188,17 @@ export_matrix <- function(df_full, disease_name) {
     p <- ggplot(df_plot, aes(x = Tuan, y = Phuong, fill = SoCa)) +
       geom_tile(color = "white", linewidth = 0.05) +
       
-      # --- SỬA ĐỔI TẠI ĐÂY: Thêm limits ---
       scale_fill_distiller(
         palette = "Spectral", 
         direction = -1, 
         na.value = "grey98", 
         name = "Số ca",
-        limits = c(0, max_val) # Cố định thang màu từ 0 đến max toàn thành phố
+        limits = c(0, max_val) 
       ) +
       
       scale_x_continuous(expand = c(0,0), breaks = seq(5, 52, 5), position = "top") +
       labs(
-        title = paste0("BẢN ĐỒ NHIỆT ", disease_name, " - TOÀN THÀNH PHỐ (Trang ", page_idx, ")"),
+        title = paste0("MA TRẬN MẬT ĐỘ CA BỆNH ", disease_name, " (Trang ", page_idx, ")"),
         subtitle = "Sắp xếp: Tổng số ca tích lũy từ Cao đến Thấp",
         x = "Tuần", y = NULL
       ) +
@@ -210,8 +218,8 @@ export_matrix <- function(df_full, disease_name) {
 }
 
 # Xuất matrix
-export_matrix(df_final_tcm, "TCM")
-export_matrix(df_final_sxh, "SXH")
+export_matrix(df_final_tcm, "TAY CHÂN MIỆNG")
+export_matrix(df_final_sxh, "SỐT XUẤT HUYẾT")
 
 
 # BẢN ĐỒ  =======================================================================
@@ -305,8 +313,8 @@ ve_ban_do_dich <- function(df_input, TUAN_BAO_CAO, ten_benh_title, ten_file_xuat
   
   return(final_map_plot)
 }
-
-
+  
+ 
 # XUẤT BẢN ĐỒ
 # 1. Vẽ cho Tay Chân Miệng
 ve_ban_do_dich(
@@ -358,7 +366,6 @@ ve_ban_do_cartogram <- function(df_input, TUAN_BAO_CAO, ten_benh_title, ten_file
   map_main_ready <- map_main %>%
     mutate(SoCa_Carto = ifelse(SoCa <= 0, 0.1, SoCa))
   
-  message("Đang biến hình bản đồ đất liền... (Bước này tốn tài nguyên)")
   # itermax = 5 để chạy nhanh, muốn đẹp hơn tăng lên 10-15
   hcm_cartogram <- cartogram_cont(map_main_ready, "SoCa_Carto", itermax = 5)
   
@@ -426,3 +433,4 @@ ve_ban_do_cartogram(
   ten_benh_title = "TAY CHÂN MIỆNG",
   ten_file_xuat = "BanDo_TCM"
 )
+
