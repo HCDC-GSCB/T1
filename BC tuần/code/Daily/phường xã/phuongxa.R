@@ -1,7 +1,7 @@
 pacman::p_load(tidyverse, readxl, surveillance, stringi, gt, 
                cowplot, scales, dplyr, ggplot2, sf, gtsummary,
                googlesheets4, googledrive, cartogram)
-# PHẦN 1: SETUP & LOAD DATA 
+# PHẦN 1: SETUP & LOAD DATA  #######
 NAM_BAO_CAO  <- 2026
 TUAN_BAO_CAO <- 4
 
@@ -19,9 +19,7 @@ load_data <- function(url, sheet) {
   read_sheet(url, sheet = sheet)
 }
 
-df_danso <- load_data("https://docs.google.com/spreadsheets/d/1ZlfExROncZcCpm8LzGlaw8wim9T_0eNNhpAsyB836kA/edit?gid=438665137#gid=438665137", sheet = "Sheet1") %>% 
-  rename(Phuong = ward, DanSo = danso) %>% 
-  mutate(phuong_clean = standardize_name_func(Phuong))
+
 
 # PHẦN 2: --- Function chạy thuật toán  ---
 run_algo_core <- function(d_ward, t_years) {
@@ -129,21 +127,30 @@ render_gt_report <- function(df_full_year, disease_name, report_week, filename) 
   return(tbl)
 }
 
-# XUẤT BÁO CÁO #######
-# --- 1. TCM ---
-# Nhập data
+# CHẠY DỮ LIỆU 168 PX ######
+# Dữ liệu dân số
+df_danso <- load_data("https://docs.google.com/spreadsheets/d/1ZlfExROncZcCpm8LzGlaw8wim9T_0eNNhpAsyB836kA/edit?gid=438665137#gid=438665137", sheet = "Sheet1") %>% 
+  rename(Phuong = ward, DanSo = danso) %>% 
+  mutate(phuong_clean = standardize_name_func(Phuong))
+
+
+# --- SXH --- Nhập data
+df_sxh_raw <- load_data("https://docs.google.com/spreadsheets/d/1Qg5zNehb86sRHaDWRdVrQPz_s9R0g0GbEV9lOajSBkw/edit?usp=sharing", sheet = "all_time")
+# Xuất dữ liệu đầy đủ
+df_final_sxh <- process_full_year_data(df_sxh_raw, df_danso, YEARS_SXH)
+
+# --- TCM --- Nhập data
 df_tcm_raw <- load_data("https://docs.google.com/spreadsheets/d/1H8E1Ou7HplqMPS09-ctHmtHM-1e18tUPFO0FTDguons/edit?gid=1402026268#gid=1402026268", sheet = "all_time")
 # Xuất dữ liệu đầy đủ
 df_final_tcm <- process_full_year_data(df_tcm_raw, df_danso, YEARS_TCM) 
+# XUẤT BÁO CÁO #######
+
 # Tạo bảng
 gt_tcm <- render_gt_report(df_final_tcm, "TCM", TUAN_BAO_CAO, paste0("BaoCao_TCM_Tuan_", TUAN_BAO_CAO, ".docx"))
 print(gt_tcm)
 
 # --- 2. SXH ---
-# Nhập data
-df_sxh_raw <- load_data("https://docs.google.com/spreadsheets/d/1Qg5zNehb86sRHaDWRdVrQPz_s9R0g0GbEV9lOajSBkw/edit?usp=sharing", sheet = "all_time")
-# Xuất dữ liệu đầy đủ
-df_final_sxh <- process_full_year_data(df_sxh_raw, df_danso, YEARS_SXH)
+
 # Tạo bảng
 gt_sxh <- render_gt_report(df_final_sxh, "SXH", TUAN_BAO_CAO, paste0("BaoCao_SXH_Tuan_", TUAN_BAO_CAO, ".docx"))
 print(gt_sxh)
@@ -158,34 +165,40 @@ print(so_luong_canh_bao_kep)
 # MA TRẬN ===========================================
 export_matrix <- function(df_full, disease_name) {
   
-  # --- SỬA ĐỔI TẠI ĐÂY: Gộp STT vào tên Phường ngay từ đầu ---
-  df_full <- df_full %>% 
-    mutate(Phuong = paste(STT, Phuong, sep = ". "))
+  # 1. TÍNH TOÁN THỨ TỰ ƯU TIÊN
+  # Bước A: Tính tổng ca theo Khu vực và theo Phường
+  ranking_data <- df_full %>%
+    group_by(KV, Phuong, STT) %>%
+    summarise(Total_Phuong = sum(SoCa, na.rm = TRUE), .groups = 'drop') %>%
+    group_by(KV) %>%
+    mutate(Total_KV = sum(Total_Phuong)) %>%
+    ungroup() %>%
+    # Sắp xếp: Khu vực nhiều ca trước -> Trong KV đó Phường nào nhiều ca đứng trước
+    arrange(desc(Total_KV), KV, desc(Total_Phuong)) 
   
-  # 1. TÍNH TOÁN & SẮP XẾP
-  # Tính tổng ca để xếp hạng phường (Lúc này tên Phường đã có STT)
-  ward_rank <- df_full %>%
-    group_by(Phuong) %>%
-    summarise(Total = sum(SoCa, na.rm = TRUE)) %>%
-    arrange(desc(Total)) %>% 
-    pull(Phuong)
+  # Bước B: Tạo nhãn và gán level cho Factor để ggplot không tự sắp xếp lại
+  ordered_labels <- ranking_data %>%
+    mutate(Label_Y = paste0(STT, ". [", KV, "] ", Phuong)) %>%
+    pull(Label_Y)
   
-  # --- QUAN TRỌNG: Lấy giá trị cao nhất của TOÀN BỘ dữ liệu ---
+  # Cập nhật vào dataframe chính
+  df_plot_all <- df_full %>%
+    mutate(Label_Y = paste0(STT, ". [", KV, "] ", Phuong)) %>%
+    mutate(Label_Y = factor(Label_Y, levels = rev(ordered_labels))) # rev để ca cao nhất nằm trên cùng
+  
+  # Giá trị cao nhất toàn bộ dữ liệu để scale màu
   max_val <- max(df_full$SoCa, na.rm = TRUE)
   
-  # 2. CHIA TRANG (43 phường/trang)
-  chunks <- split(ward_rank, ceiling(seq_along(ward_rank) / 56))
+  # 2. CHIA TRANG (56 dòng/trang)
+  chunks <- split(ordered_labels, ceiling(seq_along(ordered_labels) / 56))
   
-  # 3. VẼ & XUẤT FILE
+  # 3. VẼ & XUẤT FILE SVG
   iwalk(chunks, function(wards_batch, page_idx) {
     
-    # Lọc data cho trang hiện tại
-    df_plot <- df_full %>% 
-      filter(Phuong %in% wards_batch) %>%
-      mutate(Phuong = factor(Phuong, levels = rev(wards_batch)))
+    df_page <- df_plot_all %>% 
+      filter(Label_Y %in% wards_batch)
     
-    # Vẽ
-    p <- ggplot(df_plot, aes(x = Tuan, y = Phuong, fill = SoCa)) +
+    p <- ggplot(df_page, aes(x = Tuan, y = Label_Y, fill = SoCa)) +
       geom_tile(color = "white", linewidth = 0.05) +
       
       scale_fill_distiller(
@@ -197,26 +210,28 @@ export_matrix <- function(df_full, disease_name) {
       ) +
       
       scale_x_continuous(expand = c(0,0), breaks = seq(5, 52, 5), position = "top") +
+      
       labs(
         title = paste0("MA TRẬN MẬT ĐỘ CA BỆNH ", disease_name, " (Trang ", page_idx, ")"),
-        subtitle = "Sắp xếp: Tổng số ca tích lũy từ Cao đến Thấp",
+        subtitle = "Sắp xếp: Khu vực có số ca tích lũy từ Cao đến Thấp",
         x = "Tuần", y = NULL
       ) +
+      
       theme_minimal() +
       theme(
         legend.position = "bottom",
         legend.key.width = unit(2, "cm"),
-        axis.text.y = element_text(size = 9),
+        axis.text.y = element_text(size = 9, hjust = 0), # Căn lề trái
         axis.text.x = element_text(size = 8),
-        panel.grid = element_blank()
+        panel.grid = element_blank(),
+        plot.title = element_text(face = "bold", size = 14)
       )
     
-    # Lưu file
-    ggsave(paste0("Ranking_", disease_name, "_Page", page_idx, ".svg"), 
-           p, width = 8, height = 11, dpi = 400)
+    # Lưu file định dạng SVG
+    ggsave(paste0("Matrix_", disease_name, "_Page", page_idx, ".svg"), 
+           p, width = 11, height = 14)
   })
-}
-
+} 
 # Xuất matrix
 export_matrix(df_final_tcm, "TAY CHÂN MIỆNG")
 export_matrix(df_final_sxh, "SỐT XUẤT HUYẾT")
