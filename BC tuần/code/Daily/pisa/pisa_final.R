@@ -197,61 +197,61 @@ load_data <- function(url, sheet) {
 # RUN TCM #########
 
 # --- CẤU HÌNH CHUNG ---
-file_path <- "https://docs.google.com/spreadsheets/d/1jSAuGFUkcHBL5iie999qn7ClW2dTYB3AOSOaRwOBCGY/edit?gid=552422139#gid=552422139"
-years_hist <- c("2024", "2022", "2020", "2019", "2017")
-curr_year_col <- "2026"
+file_path_tcm <- "https://docs.google.com/spreadsheets/d/1jSAuGFUkcHBL5iie999qn7ClW2dTYB3AOSOaRwOBCGY/edit?gid=552422139#gid=552422139"
+years_hist_tcm <- c("2024", "2022", "2020", "2019", "2017")
+curr_year_col_tcm <- "2026"
 
 # 1. BIỂU ĐỒ ĐỘ LÂY TRUYỀN 
-df_ca <- load_data(url = file_path, sheet = "ca")
-thresholds_trans <- calc_transmission_thresholds(df_ca, years_hist)
-p_trans <- plot_transmission(df_curr = df_ca, 
-                             thresholds = thresholds_trans, 
-                             current_year_col = curr_year_col,
+df_ca_tcm <- load_data(url = file_path_tcm, sheet = "ca")
+thresholds_trans_tcm <- calc_transmission_thresholds(df_ca_tcm, years_hist_tcm)
+p_trans_tcm <- plot_transmission(df_curr = df_ca_tcm, 
+                             thresholds = thresholds_trans_tcm, 
+                             current_year_col = curr_year_col_tcm,
                              disease_name = "tay chân miệng")
-print(p_trans)
-ggsave("hfmd-t-tp.svg", p_trans, width = 14, height = 7, dpi = 300)
+print(p_trans_tcm)
+ggsave("hfmd-t-tp.svg", p_trans_tcm, width = 14, height = 7, dpi = 300)
 
 # 2. BIỂU ĐỒ NỘI TRÚ 
 
-df_noi <- load_data(file_path, sheet = "noi")
-df_inpatient_ready <- process_inpatient_data(df_inpatient = df_noi, 
-                                             hist_years = years_hist, 
-                                             current_year_col = curr_year_col)
+df_noi_tcm <- load_data(file_path_tcm, sheet = "noi")
+df_inpatient_ready_tcm <- process_inpatient_data(df_inpatient = df_noi_tcm, 
+                                             hist_years = years_hist_tcm, 
+                                             current_year_col = curr_year_col_tcm)
 
 
-p_inp <- plot_inpatient(df_inpatient_ready, disease_name = "tay chân miệng")
+p_inp_tcm <- plot_inpatient(df_inpatient_ready_tcm, disease_name = "tay chân miệng")
 
-print(p_inp)
-ggsave("hfmd-s-tp.svg", p_inp, width = 14, height = 7, dpi = 300)
+print(p_inp_tcm)
+ggsave("hfmd-s-tp.svg", p_inp_tcm, width = 14, height = 7, dpi = 300)
 
 # RUN SXH #########
 # --- CẤU HÌNH CHUNG ---
-file_path <- "https://docs.google.com/spreadsheets/d/13_o7NAlfBjckO6PspzITbWhlkWbfp4eKkqYCa7Dvvgg/edit?usp=sharing"
-years_hist <- c("2024", "2023", "2020", "2017", "2016")
-curr_year_col <- "2026"
+file_path_sxh <- "https://docs.google.com/spreadsheets/d/13_o7NAlfBjckO6PspzITbWhlkWbfp4eKkqYCa7Dvvgg/edit?usp=sharing"
+years_hist_sxh <- c("2024", "2023", "2020", "2017", "2016")
+curr_year_col_sxh <- "2026"
 
 # 1. BIỂU ĐỒ ĐỘ LÂY TRUYỀN
-df_ca <- load_data(file_path, sheet = "ca")
-thresholds_trans <- calc_transmission_thresholds(df_ca, years_hist)
-p_trans <- plot_transmission(df_curr = df_ca, 
-                             thresholds = thresholds_trans, 
-                             current_year_col = curr_year_col,
+df_ca_sxh <- load_data(file_path_sxh, sheet = "ca")
+thresholds_trans_sxh <- calc_transmission_thresholds(df_ca_sxh, years_hist_sxh)
+p_trans_sxh <- plot_transmission(df_curr = df_ca_sxh, 
+                             thresholds = thresholds_trans_sxh, 
+                             current_year_col = curr_year_col_sxh,
                              disease_name = "sốt xuất huyết")
-print(p_trans)
-ggsave("dengue-t-tp.svg", p_trans, width = 14, height = 7, dpi = 300)
+print(p_trans_sxh)
+ggsave("dengue-t-tp.svg", p_trans_sxh, width = 14, height = 7, dpi = 300)
 
 # 2. BIỂU ĐỒ NỘI TRÚ 
 
-df_noi <- load_data(file_path, sheet = "noi")
+df_noi_sxh <- load_data(file_path_sxh, sheet = "noi")
 
-df_inpatient_ready <- process_inpatient_data(df_inpatient = df_noi, 
-                                             hist_years = years_hist, 
-                                             current_year_col = curr_year_col)
+df_inpatient_ready_sxh <- process_inpatient_data(df_inpatient = df_noi_sxh, 
+                                             hist_years = years_hist_sxh, 
+                                             current_year_col = curr_year_col_sxh)
 
-p_inp <- plot_inpatient(df_inpatient_ready, disease_name = "sốt xuất huyết")
+p_inp_sxh <- plot_inpatient(df_inpatient_ready_sxh, disease_name = "sốt xuất huyết")
 
-print(p_inp)
-ggsave("dengue-s-tp.svg", p_inp, width = 14, height = 7, dpi = 300)
+print(p_inp_sxh)
+ggsave("dengue-s-tp.svg", p_inp_sxh, width = 14, height = 7, dpi = 300)
 
 
 # CA NẶNG ################
