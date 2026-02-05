@@ -131,7 +131,11 @@ plot_algo_dual <- function(df, farrington, cusum, year_target,
                size = 3, shape = 17, stroke = 1.2) +
     
     scale_x_continuous(breaks = seq(1, week_target, 4)) +
-    scale_y_continuous(limits = c(0, y_max), expand = c(0,0)) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.1)), 
+                       
+                       # Nếu bạn muốn scale tự động theo y_max nhưng vẫn đảm bảo đẹp:
+                       limits = c(0, NA) 
+    ) +
     
     labs(x = "Tuần", y = "Số ca bệnh", 
          caption = paste("Năm lịch sử:", paste(ref_years, collapse = ", "))) +
