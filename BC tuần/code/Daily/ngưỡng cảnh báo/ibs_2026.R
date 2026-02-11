@@ -100,15 +100,16 @@ summary_epidemic <- function(df, res_f, res_c, remake_obj, target_year, target_w
 
 # Tính toán cho SXH và TCM
 sxh_metrics <- summary_epidemic(out_f_sxh$df, out_f_sxh$result, out_c_sxh$result, 
-                                remake(df_sxh, c(2016, 2017, 2020, 2023, 2024)), 2026, 5)
+                                remake(df_sxh, c(2016, 2017, 2020, 2023, 2024)), 2026, 6)
+
 
 tcm_metrics <- summary_epidemic(out_f_tcm$df, out_f_tcm$result, out_c_tcm$result, 
-                                remake(df_tcm, c(2017, 2019, 2020, 2022, 2024)), 2026, 5)
+                                remake(df_tcm, c(2017, 2019, 2020, 2022, 2024)), 2026, 6)
 
 # Tạo bảng
 summary_table <- data.frame(
   "Chi_tieu" = c(
-    "Số ca cộng dồn đến tuần 5/2026",
+    "Số ca cộng dồn đến tuần 6/2026",
     "- Số cùng kỳ năm trước",
     "Số ca trong tuần",
     "- So với tuần trước",
@@ -124,7 +125,7 @@ summary_table <- data.frame(
 )
 
 # Xuất ra file Excel
-write_xlsx(summary_table, "PL1_T5_2026.xlsx")
+write_xlsx(summary_table, "PL1_T6_2026.xlsx")
 
 # In kiểm tra
 print(summary_table)

@@ -1,0 +1,554 @@
+---
+title: "DTH"
+author: "kieu diem"
+date: "2025-12-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#Library
+# Packages
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(janitor)
+library(lubridate)
+library(ggplot2)
+library(EpiEstim)
+library(slider)
+library(zoo)
+library(data.table)
+library(sf)
+library(plotly)
+library(crosstalk)
+library(DT)
+```
+#Gọi file
+Gọi danh sách ca theo tuần
+```{r}
+data <- read_excel("C:/Users/ltkdi/OneDrive/GSCB-HCDC/HCDC/Reports/Week report/Data_BTN_Khoa GSCB/data/tuan 05.xlsx"
+                   )
+getwd()
+data<-data.frame(data)
+
+#đổi tên
+data<- data %>% rename(
+  px = "NoiOHienTai_SauKhiSapNhap_WardId",
+  tinh = "NoiOHienTai_SauKhiSapNhap_CityId",
+  chandoan = "ChanDoanChinhName",
+  laymau = "LayMauXNName",
+  dvbaocao = "DonViBaoCaoName",
+  phanloai = "PhanLoaiChanDoanName",
+  phando ="PhanDoBenhName",
+  hinhthucdieutri ="HinhThucDieuTriName")
+
+#Điều chỉnh format ngày
+data <- data %>% 
+  mutate(across(
+    .cols = c(NgaySinh, NgayKhoiPhat, NgayBaoCao, NgayNhapVien), 
+    .fns = ~ as.Date(., format = "%d/%m/%Y")
+  ))
+
+#Tính tuổi, tạo cột tháng nhập viện, năm nhập viện
+data <- data %>% 
+  mutate(
+    Tuoi = year(NgayNhapVien) - year(NgaySinh),
+    month = month(NgayNhapVien),
+    namnv= epiyear(NgayNhapVien))
+
+# tách dữ liệu sốt xuất huyết, tạo cột nhóm tuổi
+data_sxh <- data %>% 
+  filter(chandoan == "Sốt xuất huyết Dengue") %>% 
+  mutate(
+    nhomtuoi = case_when(
+      Tuoi <= 2 ~ "≤2 tuổi",
+      Tuoi > 2 & Tuoi <= 5 ~ ">2-5 tuổi",
+      Tuoi > 5 & Tuoi <= 15 ~ ">5- 15 tuổi",
+      TRUE ~ "> 15 tuổi"),
+    phando = case_when (
+          phando =="Sốt xuất huyết Dengue"~"SXHD",
+          phando =="Sốt xuất huyết Dengue có dấu hiệu cảnh báo"~"SXHD có DHCB",
+          phando =="Sốt xuất huyết Dengue nặng"~"SXHD nặng",
+          TRUE ~ phando
+        ))
+
+#tách dữ liệu tay chân miệng, tạo cột nhóm tuổi
+data_tcm <- data %>%filter (chandoan=="Tay - chân - miệng") %>% 
+  mutate(
+    nhomtuoi = case_when(
+      Tuoi <1 ~ "Dưới 1 tuổi",
+      Tuoi >=1 & Tuoi <4 ~ "1-3 tuổi",
+      Tuoi >=4 & Tuoi <=5 ~"4-5 tuổi",
+      TRUE ~ "Trên 5 tuổi"))
+```
+
+## Khai báo tháng và năm tính toán
+```{r}
+# Khai báo tháng và năm tính toán
+month_nv <- 1      
+year_nv <- 2026
+# điều kiện (không chỉnh)
+if (month_nv == 1) {
+  month_truoc <- 12 
+  y_truoc <- year_nv - 1 
+} else {
+  month_truoc <- month_nv - 1
+  y_truoc <- year_nv
+}
+# Tạo danh sách 4 tháng trước (code này tự động tính lùi 4 tuần)
+target_month <- data.frame(month = month_nv, namnv = year_nv) %>%
+  slice(rep(1, 4)) %>%
+  mutate(
+    lag = 1:4,
+    calc_m = month_nv - lag,
+    real_m = ifelse(calc_m <= 0, 12 + calc_m, calc_m),
+    real_y = ifelse(calc_m <= 0, year_nv - 1, year_nv)
+  )
+# Kiểm tra
+print(paste("tháng báo cáo:", month_nv, "/", month_nv))
+print(paste("tháng trước:", month_truoc, "/", y_truoc))
+print(target_month[, c("real_m", "real_y")])
+```
+#1. Sốt xuất huyết
+## Tính phân độ sốt xuất huyết
+```{r}
+#Phân độ Sốt xuất huyết: tính tổng ca, tỷ lệ theo phân độ
+phando_sxh <- data_sxh %>% filter (month==month_nv) %>% 
+  group_by(phando) %>%
+  summarise(tongca = n(), .groups = "drop") %>%
+  mutate(
+    rate  = tongca / sum(tongca) * 100,
+    label = paste0(tongca, " (", round(rate,1), "%)")
+  ) %>% 
+  bind_rows(
+    summarise(., 
+      phando = "Tổng cộng", 
+      tongca = sum(tongca), 
+      rate   = 100, 
+      label  = paste0(tongca, " (100%)")
+    ))
+
+print(phando_sxh)
+```
+
+##Vẽ biểu đồ tròn phân độ sốt xuất huyết
+
+```{r}
+# vẽ biểu đồ hình tròn
+plot_data <- phando_sxh %>% 
+  filter(phando != "Tổng cộng") %>% 
+  arrange(desc(phando)) %>% 
+  mutate(
+    # tâm của đường tròn
+    csum = cumsum(tongca), 
+    y_goc = csum - 0.4 * tongca, 
+    # nhãn
+    label_text = paste0(phando, ":\n", tongca, "\n", "(",round(rate, 1), "%",")"),
+    # Tỷ lệ < 18% thì đưa ra ngoài
+    vitri = ifelse(rate < 18, "ngoai", "trong"),
+    y_nhan = y_goc
+  ) 
+
+# xử lý sự chồng chéo
+plot_data <- plot_data %>%
+  mutate(
+    y_nhan = case_when(
+      phando == "SXHD nặng" ~ y_goc + 30,
+      TRUE ~ y_nhan
+    )
+  )
+# VẼ BIỂU ĐỒ
+ggplot(plot_data, aes(x = 1, y = tongca, fill = phando)) + 
+  # 1. Vẽ bánh
+  geom_col(width = 1, color = "white") + 
+  # 2. Vẽ đường kẻ (Chỉ cho nhãn ở ngoài)
+  # Đoạn 1: Đi thẳng từ tâm miếng bánh ra ngoài (giữ nguyên góc y_goc)
+geom_segment(data = subset(plot_data, vitri == "ngoai"),
+             aes(x = 1.5, y = y_goc, xend = 1.65, yend = y_goc),
+             size = 0.5, color = "grey40") +
+
+# Đoạn 2: Từ đầu đoạn 1 nối đến chữ (bẻ lái sang y_nhan)
+geom_segment(data = subset(plot_data, vitri == "ngoai"),
+             aes(x = 1.65, y = y_goc, xend = 1.7, yend = y_nhan),
+             size = 0.5, color = "grey40") +
+  
+  # Vẽ nhãn ở TRONG (x < 1.5)
+  geom_text(data = subset(plot_data, vitri == "trong"),
+            aes(x = 1, y = y_nhan, label = label_text),
+            color = "black", fontface = "bold", size = 3, lineheight = 0.9) +
+  
+  # Vẽ nhãn ở NGOÀI (x > 1.5)
+  geom_text(data = subset(plot_data, vitri == "ngoai"),
+            aes(x = 1.85, y = y_nhan, label = label_text),
+            color = "black", fontface = "bold", size = 3, 
+            lineheight = 0.9, hjust = 0) +
+  # 5. Thiết lập toạ độ cực
+  coord_polar("y", start = 0) +
+  theme_void() +
+  # 6. Màu sắc và tiêu đề
+  scale_fill_manual(values = c(
+    "SXHD" = "#ED7D31", 
+    "SXHD có DHCB" = "#00B0F0", 
+    "SXHD nặng" = "#70AD47"
+  )) +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
+```
+
+##Tạo bảng Nặng/Mắc và Chết/Mắc của sốt xuất huyết 
+```{r}
+# Bảng Tỷ lệ nặng trên mắc và chết trên mắc
+# DÒNG 1: Tháng hiện tại
+row_1 <- data_sxh %>%
+  filter(month == month_nv) %>%
+  summarise(
+    Mac  = n(),
+    Nang = sum(phando == "SXHD nặng", na.rm = TRUE),
+    Chet = sum(hinhthucdieutri == "Tử vong", na.rm = TRUE),
+    .groups = "drop" # Thêm dòng này để tắt cảnh báo nhóm
+  ) %>%
+  mutate(Label = paste0(sprintf("%02d", month_nv), "/", year_nv))
+#DÒNG 2: TUẦN TRƯỚC
+row_2 <- data_sxh %>%
+  ungroup() %>%
+  filter(month == month_truoc) %>%
+  summarise(
+    Mac  = n(),
+    Nang = sum(phando == "SXHD nặng", na.rm = TRUE),
+    Chet = sum(hinhthucdieutri == "Tử vong", na.rm = TRUE),
+    .groups = "drop" 
+  ) %>%
+  mutate(Label = paste0(sprintf("%02d", month_truoc), "/", y_truoc))
+#DÒNG 3
+row_3 <- data_sxh %>%
+  # Inner join để chỉ lọc lấy đúng 4 tuần trong danh sách trên
+  inner_join(target_month, by = c("month" = "real_m")) %>%
+  summarise(
+    Mac  = n() / 4, # Chia 4 để lấy trung bình
+    Nang = sum(phando == "SXHD nặng", na.rm = TRUE) / 4,
+    Chet = sum(hinhthucdieutri == "Tử vong", na.rm = TRUE) / 4
+  ) %>%
+  mutate(Label = "TB 4 tháng trước")
+
+bang_hoan_chinh <- bind_rows(row_1, row_2, row_3) %>%
+  mutate(
+    # Tính phần trăm
+    `% Nặng/Mắc` = round((Nang / Mac) * 100,1),
+    `% Chết/Mắc` = round((Chet / Mac) * 100,1)
+  ) %>%
+  # Sắp xếp cột
+  select(Label, Mac, Nang, Chet, `% Nặng/Mắc`, `% Chết/Mắc`)
+print(bang_hoan_chinh)
+```
+
+## số ca SXH nặng theo giới tính, nhóm tuổi
+```{r}
+data_sxh_nang<- data_sxh %>%filter (phando=="SXHD nặng")
+# Data tuần hiện tại
+df_now <- data_sxh_nang %>% filter(month == month_nv)
+
+# Data tuần trước
+df_prev <- data_sxh_nang %>% filter(month == month_truoc)
+
+# Data 4 tuần trước (Dùng inner_join để lọc đúng 4 tháng trong danh sách)
+df_4w <- data_sxh_nang %>% 
+  inner_join(target_month, by = c("month" = "real_m"))
+
+# --- 3. TÍNH TỔNG SỐ CA (N) ĐỂ LÀM TIÊU ĐỀ ---
+n_now  <- nrow(df_now)
+n_prev <- nrow(df_prev)
+n_4w   <- nrow(df_4w) / 4 # Trung bình cộng số ca của 4 tuần
+tao_dong <- function(ten_dong, dieu_kien_logic) {
+  # 1. Tính số lượng (n)
+  v_now  <- df_now %>% filter(eval(dieu_kien_logic)) %>% nrow()
+  v_prev <- df_prev %>% filter(eval(dieu_kien_logic)) %>% nrow()
+  v_4w   <- (df_4w %>% filter(eval(dieu_kien_logic)) %>% nrow()) / 4 # Chia 4 để lấy TB
+  v_now  <- round (v_now,0)
+  v_prev <- round (v_prev,0)
+  v_4w   <- round(v_4w, 0)
+  
+  # 2. Tính phần trăm (%)
+  p_now  <- round(v_now / n_now * 100, 1)
+  p_prev <- round(v_prev / n_prev * 100, 1)
+  p_4w   <- round(v_4w / n_4w * 100, 1) # So với tổng TB
+  
+  # 3. Định dạng hiển thị: "n (p%)"
+  str_now  <- paste0(v_now, " (", p_now, "%)")
+  str_prev <- paste0(v_prev, " (", p_prev, "%)")
+  str_4w   <- paste0(round(v_4w, 1), " (", p_4w, "%)")
+  
+  # 4. Tính chênh lệch (Tuyệt đối và %)
+  # So với tuần trước
+  diff_prev_abs <- v_now - v_prev
+  diff_prev_pct <- ifelse(v_prev == 0, 0, round((diff_prev_abs / v_prev) * 100, 1))
+  str_diff_prev <- paste0(diff_prev_abs, " (", diff_prev_pct, "%)")
+  
+  # So với TB 4 tuần
+  diff_4w_abs <- round(v_now - v_4w, 1)
+  diff_4w_pct <- ifelse(v_4w == 0, 0, round((diff_4w_abs / v_4w) * 100, 1))
+  str_diff_4w <- paste0(diff_4w_abs, " (", diff_4w_pct, "%)")
+  
+  # Trả về 1 dòng dữ liệu
+  return(data.frame(
+    DacDiem = ten_dong,
+    Thangnay = str_now,
+    Thangtruoc = str_prev,
+    TB4thangtruoc= str_4w
+  ))
+}
+# TẠO CÁC DÒNG SỐ LIỆU
+# 1. Giới tính (Thay 'GioiTinh' bằng tên cột thật của bạn)
+row_nam <- tao_dong("Nam", quote(GioiTinh == "Nam"))
+row_nu  <- tao_dong("Nữ",  quote(GioiTinh == "Nữ"))
+
+# 2. Nhóm tuổi (Thay 'nhomtuoi' bằng tên cột bạn đã tạo ở câu trước)
+row_t1 <- tao_dong("≤2 tuổi",      quote(nhomtuoi == "≤2 tuổi"))
+row_t2 <- tao_dong(">2-5 tuổi",    quote(nhomtuoi == ">2-5 tuổi"))
+row_t3 <- tao_dong(">5- 15 tuổi",  quote(nhomtuoi == ">5- 15 tuổi"))
+row_t4 <- tao_dong("> 15 tuổi",    quote(nhomtuoi == "> 15 tuổi"))
+
+# 3. Dòng Tuổi trung bình 
+t_mean <- round(mean(df_now$Tuoi, na.rm=T), 1)
+t_sd   <- round(sd(df_now$Tuoi, na.rm=T), 1)
+row_tuoi <- data.frame(
+  DacDiem = "Tuổi (TB ± ĐLC)",
+  Thangnay = paste0(t_mean, " ± ", t_sd),
+  Thangtruoc = paste0(round(mean(df_prev$Tuoi, na.rm=T), 1), " ± ", round(sd(df_prev$Tuoi, na.rm=T), 1)),
+  TB4thangtruoc = paste0(round(mean(df_4w$Tuoi, na.rm=T), 1), " ± ", round(sd(df_4w$Tuoi, na.rm=T), 1))
+)
+
+# GỘP LẠI THÀNH BẢNG CUỐI CÙNG
+bang_final <- bind_rows(
+  data.frame(DacDiem = "Giới tính"), # Dòng tiêu đề nhóm
+  row_nam, row_nu,
+  row_tuoi,
+  data.frame(DacDiem = "Nhóm tuổi"), # Dòng tiêu đề nhóm
+  row_t1, row_t2, row_t3, row_t4
+)
+# Hiển thị bảng thô
+print(bang_final)
+```
+# TCM
+## Tính phân độ tay chân miệng
+```{r}
+#Phân độ TCM: tính tổng ca, tỷ lệ theo phân độ
+phando_tcm <- data_tcm %>% filter (month==month_nv) %>% 
+  group_by(phando) %>%
+  summarise(tongca = n(), .groups = "drop") %>%
+  mutate(
+    rate  = tongca / sum(tongca) * 100,
+    label = paste0(tongca, " (", round(rate,1), "%)")
+  ) %>% 
+  bind_rows(
+    summarise(., 
+      phando = "Tổng cộng", 
+      tongca = sum(tongca), 
+      rate   = 100, 
+      label  = paste0(tongca, " (100%)")
+    ))
+
+print(phando_tcm)
+```
+
+##Vẽ biểu đồ tròn phân độ tay chân miệng
+
+```{r}
+# vẽ biểu đồ hình tròn
+plot_data_tcm <- phando_tcm %>% 
+  filter(phando != "Tổng cộng",tongca>0 ) %>% 
+  arrange(desc(phando)) %>% 
+  mutate(
+    # tâm của đường tròn
+    csum = cumsum(tongca), 
+    y_goc = csum - 0.4 * tongca, 
+    # nhãn
+    label_text = paste0(phando, ":\n", tongca, "\n", "(",round(rate, 1), "%",")"),
+    # Tỷ lệ < 18% thì đưa ra ngoài
+    vitri = ifelse(rate < 18, "ngoai", "trong"),
+    y_nhan = y_goc
+  ) 
+
+# xử lý sự chồng chéo
+plot_data_tcm <- plot_data_tcm %>%
+  mutate(
+    y_nhan = case_when(
+      phando %in% c("Độ 2b","Độ 3","Độ 4") ~ y_goc + 50,
+      TRUE ~ y_nhan
+    )
+  )
+unique(data_tcm$phando)
+# VẼ BIỂU ĐỒ
+ggplot(plot_data_tcm, aes(x = 1, y = tongca, fill = phando)) + 
+  # 1. Vẽ bánh
+  geom_col(width = 1, color = "white") + 
+  # 2. Vẽ đường kẻ (Chỉ cho nhãn ở ngoài)
+  # Đoạn 1: Đi thẳng từ tâm miếng bánh ra ngoài (giữ nguyên góc y_goc)
+geom_segment(data = subset(plot_data_tcm, vitri == "ngoai"),
+             aes(x = 1.5, y = y_goc, xend = 1.65, yend = y_goc),
+             size = 0.5, color = "grey40") +
+
+# Đoạn 2: Từ đầu đoạn 1 nối đến chữ (bẻ lái sang y_nhan)
+geom_segment(data = subset(plot_data_tcm, vitri == "ngoai"),
+             aes(x = 1.65, y = y_goc, xend = 1.7, yend = y_nhan),
+             size = 0.5, color = "grey40") +
+  
+  # Vẽ nhãn ở TRONG (x < 1.5)
+  geom_text(data = subset(plot_data_tcm, vitri == "trong"),
+            aes(x = 1, y = y_nhan, label = label_text),
+            color = "black", fontface = "bold", size = 3, lineheight = 0.9) +
+  # Vẽ nhãn ở NGOÀI (x > 1.5)
+  geom_text(data = subset(plot_data_tcm, vitri == "ngoai"),
+            aes(x = 1.85, y = y_nhan, label = label_text),
+            color = "black", fontface = "bold", size = 3, 
+            lineheight = 0.9, hjust = 0) +
+  # 5. Thiết lập toạ độ cực
+  coord_polar("y", start = 0) +
+  theme_void() +
+  # 6. Màu sắc và tiêu đề
+  scale_fill_manual(values = c(
+    "Độ 1" = "#ED7D31", 
+    "Độ 2a" = "#00B0F0", 
+    "Độ 2b" = "#70AD47",
+    "Độ 3" = "#006699",
+    "Độ 4" ="#990099"
+  )) +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 16))
+```
+
+
+
+
+##Tạo bảng Nặng/Mắc và Chết/Mắc của tay chân miệng
+```{r}
+# Bảng Tỷ lệ nặng trên mắc và chết trên mắc
+# DÒNG 1: Tháng hiện tại
+row_a <- data_tcm %>%
+  filter(month == month_nv) %>%
+  summarise(
+    Mac  = n(),
+    Nang = sum(phando %in% c("Độ 2b","Độ 3","Độ 4"), na.rm = TRUE),
+    Chet = sum(hinhthucdieutri == "Tử vong", na.rm = TRUE),
+    .groups = "drop" # Thêm dòng này để tắt cảnh báo nhóm
+  ) %>%
+  mutate(Label = paste0(sprintf("%02d", month_nv), "/", year_nv))
+#DÒNG 2: TUẦN TRƯỚC
+row_b <- data_tcm %>%
+  ungroup() %>%
+  filter(month == month_truoc) %>%
+  summarise(
+    Mac  = n(),
+    Nang = sum(phando %in% c("Độ 2b","Độ 3","Độ 4"), na.rm = TRUE),
+    Chet = sum(hinhthucdieutri == "Tử vong", na.rm = TRUE),
+    .groups = "drop" 
+  ) %>%
+  mutate(Label = paste0(sprintf("%02d", month_truoc), "/", y_truoc))
+row_c <- data_tcm %>%
+  
+  # Inner join để chỉ lọc lấy đúng 4 tuần trong danh sách trên
+  inner_join(target_month, by = c("month" = "real_m")) %>%
+  summarise(
+    Mac  = n() / 4, # Chia 4 để lấy trung bình
+    Nang = sum(phando %in% c("Độ 2b","Độ 3","Độ 4"), na.rm = TRUE) / 4,
+    Chet = sum(hinhthucdieutri == "Tử vong", na.rm = TRUE) / 4
+  ) %>%
+  mutate(Label = "TB 4 tháng trước")
+
+bang_hoan_chinh_tcm <- bind_rows(row_a, row_b, row_c) %>%
+  mutate(
+    # Tính phần trăm
+    `% Nặng/Mắc` = round((Nang / Mac) * 100,1),
+    `% Chết/Mắc` = round((Chet / Mac) * 100,1)
+  ) %>%
+  # Sắp xếp cột
+  select(Label, Mac, Nang, Chet, `% Nặng/Mắc`, `% Chết/Mắc`)
+print(bang_hoan_chinh_tcm)
+```
+
+## số ca TCM nặng theo giới tính, nhóm tuổi
+```{r}
+data_tcm_nang<- data_tcm %>%filter (phando %in% c("Độ 2b","Độ 3","Độ 4"))
+# Data tuần hiện tại
+df_now_tcm <- data_tcm_nang %>% filter(month == month_nv)
+
+# Data tuần trước
+df_prev_tcm <- data_tcm_nang %>% filter(month == month_truoc)
+
+# Data 4 tuần trước (Dùng inner_join để lọc đúng 4 tháng trong danh sách)
+df_4w_tcm <- data_tcm_nang %>% 
+  inner_join(target_month, by = c("month" = "real_m"))
+
+# --- 3. TÍNH TỔNG SỐ CA (N) ĐỂ LÀM TIÊU ĐỀ ---
+n_now_tcm  <- nrow(df_now_tcm)
+n_prev_tcm <- nrow(df_prev_tcm)
+n_4w_tcm   <- nrow(df_4w_tcm)/4 # Trung bình cộng số ca của 4 tuần
+tao_dong_tcm <- function(ten_dong_tcm, dieu_kien_logic_tcm) {
+  # 1. Tính số lượng (n)
+  v_now_tcm  <- df_now_tcm %>% filter(eval(dieu_kien_logic_tcm)) %>% nrow()
+  v_prev_tcm <- df_prev_tcm %>% filter(eval(dieu_kien_logic_tcm)) %>% nrow()
+  v_4w_tcm   <- (df_4w_tcm %>% filter(eval(dieu_kien_logic_tcm)) %>% nrow()) / 4 # Chia 4 để lấy TB
+  v_now_tcm  <- round (v_now_tcm,0)
+  v_prev_tcm <- round (v_prev_tcm,0)
+  v_4w_tcm   <- round(v_4w_tcm, 0)
+  
+  # 2. Tính phần trăm (%)
+  p_now_tcm  <- round(v_now_tcm / n_now_tcm * 100, 1)
+  p_prev_tcm <- round(v_prev_tcm / n_prev_tcm * 100, 1)
+  p_4w_tcm   <- round(v_4w_tcm / n_4w_tcm * 100, 1)
+  
+  # 3. Định dạng hiển thị: "n (p%)"
+  str_now_tcm  <- paste0(v_now_tcm, " (", p_now_tcm, "%)")
+  str_prev_tcm <- paste0(v_prev_tcm, " (", p_prev_tcm, "%)")
+  str_4w_tcm   <- paste0(round(v_4w_tcm, 1), " (", p_4w_tcm, "%)")
+  
+  # 4. Tính chênh lệch (Tuyệt đối và %)
+  # So với tuần trước
+  diff_prev_abs_tcm <- v_now_tcm - v_prev_tcm
+  diff_prev_pct_tcm <- ifelse(v_prev_tcm == 0, 0, round((diff_prev_abs_tcm / v_prev_tcm) * 100, 1))
+  str_diff_prev_tcm <- paste0(diff_prev_abs_tcm, " (", diff_prev_pct_tcm, "%)")
+  
+  # So với TB 4 tuần
+  diff_4w_abs_tcm <- round(v_now_tcm - v_4w_tcm, 1)
+  diff_4w_pct_tcm <- ifelse(v_4w_tcm == 0, 0, round((diff_4w_abs_tcm / v_4w_tcm) * 100, 1))
+  str_diff_4w_tcm <- paste0(diff_4w_abs_tcm, " (", diff_4w_pct_tcm, "%)")
+  
+  # Trả về 1 dòng dữ liệu
+  return(data.frame(
+    DacDiem = ten_dong_tcm,
+    Thangnay = str_now_tcm,
+    Thangtruoc = str_prev_tcm,
+    TB4thangtruoc= str_4w_tcm
+  ))
+}
+# TẠO CÁC DÒNG SỐ LIỆU
+# 1. Giới tính (Thay 'GioiTinh' bằng tên cột thật của bạn)
+row_nam_tcm <- tao_dong_tcm("Nam", quote(GioiTinh == "Nam"))
+row_nu_tcm  <- tao_dong_tcm("Nữ",  quote(GioiTinh == "Nữ"))
+
+# 2. Nhóm tuổi (Thay 'nhomtuoi' bằng tên cột bạn đã tạo ở câu trước)
+row_t1_tcm <- tao_dong_tcm("Dưới 1 tuổi",      quote(nhomtuoi == "Dưới 1 tuổii"))
+row_t2_tcm <- tao_dong_tcm("1-3 tuổi",    quote(nhomtuoi == "1-3 tuổi"))
+row_t3_tcm <- tao_dong_tcm("4-5 tuổi",  quote(nhomtuoi == "4-5 tuổi"))
+row_t4_tcm <- tao_dong_tcm("Trên 5 tuổi",    quote(nhomtuoi == "Trên 5 tuổi"))
+
+# 3. Dòng Tuổi trung bình 
+t_mean_tcm <- round(mean(df_now_tcm$Tuoi, na.rm=T), 1)
+t_sd_tcm   <- round(sd(df_now_tcm$Tuoi, na.rm=T), 1)
+row_tuoi_tcm <- data.frame(
+  DacDiem = "Tuổi (TB ± ĐLC)",
+  Thangnay = paste0(t_mean_tcm, " ± ", t_sd_tcm),
+  Thangtruoc = paste0(round(mean(df_prev_tcm$Tuoi, na.rm=T), 1), " ± ", round(sd(df_prev_tcm$Tuoi, na.rm=T), 1)),
+  TB4thangtruoc = paste0(round(mean(df_4w_tcm$Tuoi, na.rm=T), 1), " ± ", round(sd(df_4w_tcm$Tuoi, na.rm=T), 1))
+)
+
+# GỘP LẠI THÀNH BẢNG CUỐI CÙNG
+bang_final_tcm <- bind_rows(
+  data.frame(DacDiem = "Giới tính"), # Dòng tiêu đề nhóm
+  row_nam_tcm, row_nu_tcm,
+  row_tuoi_tcm,
+  data.frame(DacDiem = "Nhóm tuổi"), # Dòng tiêu đề nhóm
+  row_t1_tcm, row_t2_tcm, row_t3_tcm, row_t4_tcm
+)
+# Hiển thị bảng thô
+print(bang_final_tcm)
+```
