@@ -3,7 +3,7 @@ pacman::p_load(tidyverse, readxl, surveillance, stringi, gt,
                googlesheets4, googledrive, cartogram)
 # PHẦN 1: SETUP & LOAD DATA  #######
 NAM_BAO_CAO  <- 2026
-TUAN_BAO_CAO <- 4
+TUAN_BAO_CAO <- 5
 
 YEARS_TCM <- c( 2016, 2017,2020, 2023, 2024, NAM_BAO_CAO) 
 YEARS_SXH <- c( 2016, 2017,2020, 2023, 2024, NAM_BAO_CAO)
@@ -93,24 +93,57 @@ process_full_year_data <- function(df_raw, df_pop, target_years_list) {
 # PHẦN 3:  BÁO CÁO
 render_gt_report <- function(df_full_year, disease_name, report_week, filename) {
   
-  # BƯỚC QUAN TRỌNG: Lọc tuần báo cáo tại đây
+  # 1. Lọc tuần báo cáo & Tạo cột hiển thị
   df_view <- df_full_year %>%
-    filter(Tuan == report_week) %>%  # <--- CHỈ LẤY TUẦN BÁO CÁO
+    filter(Tuan == report_week) %>% 
     mutate(
       F_Display = ifelse(Is_Hotspot_Far, "(+)", "(-)"),
       C_Display = ifelse(Is_Hotspot_Cus, "(+)", "(-)")
-    ) %>%
-    arrange(desc(Is_Hotspot_Far & Is_Hotspot_Cus), desc(Is_Hotspot_Far), desc(SoCa)) %>%
-    select(Phuong, SoCa, TyLe, TichLuy, SoSanh_Tuan, SoSanh_4T, F_Display, C_Display)
+    ) 
   
-  # Tạo bảng GT
-  tbl <- df_view %>% 
-    gt() %>%
+  # 2. TÍNH TOÁN THỨ TỰ ƯU TIÊN CHO KHU VỰC (KV)
+  # Logic: KV nào có tổng số phường bị cảnh báo (Far hoặc Cus) nhiều hơn sẽ lên đầu
+  df_sorted <- df_view %>%
+    group_by(KV) %>%
+    mutate(
+      # Đếm số phường trong KV này đang bị cảnh báo (Bất kể Far hay Cus)
+      SoPhuongBiCanhBao = sum(Is_Hotspot_Far & Is_Hotspot_Cus, na.rm = TRUE),
+      
+      # (Phụ) Tính tổng số ca của cả KV để nếu số phường cảnh báo bằng nhau thì KV nào nhiều ca hơn lên trước
+      TongCaKV = sum(SoCa, na.rm = TRUE)
+    ) %>%
+    ungroup() %>%
+    
+    # 3. SẮP XẾP DỮ LIỆU
+    arrange(
+      desc(SoPhuongBiCanhBao),            # Ưu tiên 1: KV có nhiều phường cảnh báo nhất
+      desc(TongCaKV),                     # Ưu tiên 2: KV có tổng ca cao hơn
+      desc(Is_Hotspot_Far & Is_Hotspot_Cus), # Ưu tiên 3 (trong KV): Phường bị cả 2 cảnh báo
+      desc(Is_Hotspot_Far | Is_Hotspot_Cus), # Ưu tiên 4 (trong KV): Phường bị ít nhất 1 cảnh báo
+      desc(SoCa)                          # Ưu tiên 5: Số ca cao xếp trên
+    ) %>%
+    
+    # Chọn cột hiển thị
+    select(KV, Phuong, SoCa, TyLe, TichLuy, SoSanh_Tuan, SoSanh_4T, F_Display, C_Display)
+  
+  # 4. TẠO BẢNG GT
+  tbl <- df_sorted %>% 
+    gt(groupname_col = "KV") %>%  # Gom nhóm theo KV (sẽ tuân theo thứ tự arrange ở trên)
+    
     tab_spanner(label = paste("Số liệu", disease_name), columns = c(SoCa, TyLe, TichLuy)) %>%
     tab_spanner(label = "So sánh", columns = c(SoSanh_Tuan, SoSanh_4T)) %>%
     tab_spanner(label = "Cảnh báo 3 tuần", columns = c(F_Display, C_Display)) %>%
-    cols_label(Phuong="Phường/Xã", SoCa=paste("Tuần", report_week), TyLe="Tỷ lệ/100k",
-               SoSanh_Tuan="vs Tuần trước", SoSanh_4T="vs TB 4 tuần", F_Display="Farrington", C_Display="CUSUM") %>%
+    
+    cols_label(
+      Phuong = "Phường/Xã", 
+      SoCa = paste("Tuần", report_week), 
+      TyLe = "Tỷ lệ/100k",
+      SoSanh_Tuan = "vs Tuần trước", 
+      SoSanh_4T = "vs TB 4 tuần", 
+      F_Display = "Farrington", 
+      C_Display = "CUSUM"
+    ) %>%
+    
     fmt_number(TyLe, decimals = 2) %>%
     sub_missing(columns = contains("SoSanh"), missing_text = "-") %>%
     fmt_percent(contains("SoSanh"), decimals = 1, force_sign = TRUE) %>%
@@ -121,7 +154,13 @@ render_gt_report <- function(df_full_year, disease_name, report_week, filename) 
               locations = cells_body(columns = c(F_Display, C_Display), rows = (F_Display == "(+)" | C_Display == "(+)"))) %>%
     # Tô màu xám cho (-)
     tab_style(style = cell_text(color = "gray"), 
-              locations = cells_body(columns = c(F_Display, C_Display), rows = (F_Display == "(-)" | C_Display == "(-)")))
+              locations = cells_body(columns = c(F_Display, C_Display), rows = (F_Display == "(-)" | C_Display == "(-)"))) %>%
+    
+    # Style Header nhóm (Tên Quận/Huyện)
+    tab_style(
+      style = list(cell_fill(color = "#E6F2FF"), cell_text(weight = "bold", color = "#003366")),
+      locations = cells_row_groups()
+    )
   
   gtsave(tbl, filename)
   return(tbl)
@@ -130,7 +169,7 @@ render_gt_report <- function(df_full_year, disease_name, report_week, filename) 
 # CHẠY DỮ LIỆU 168 PX ######
 # Dữ liệu dân số
 df_danso <- load_data("https://docs.google.com/spreadsheets/d/1ZlfExROncZcCpm8LzGlaw8wim9T_0eNNhpAsyB836kA/edit?gid=438665137#gid=438665137", sheet = "Sheet1") %>% 
-  rename(Phuong = ward, DanSo = danso) %>% 
+  rename(Phuong = ward, DanSo = danso, KV = KV) %>%  
   mutate(phuong_clean = standardize_name_func(Phuong))
 
 
@@ -235,6 +274,8 @@ export_matrix <- function(df_full, disease_name) {
 # Xuất matrix
 export_matrix(df_final_tcm, "TAY CHÂN MIỆNG")
 export_matrix(df_final_sxh, "SỐT XUẤT HUYẾT")
+
+
 
 
 # BẢN ĐỒ  =======================================================================
