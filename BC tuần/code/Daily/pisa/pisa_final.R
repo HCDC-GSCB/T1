@@ -58,24 +58,47 @@ plot_transmission <- function(df_curr, thresholds, current_year_col, disease_nam
   # Vẽ biểu đồ
   p <- ggplot() +
     # Lớp nền (Thresholds)
-    annotate("rect", xmin = -Inf, xmax = Inf, ymin = 0, ymax = thresholds$Seasonal, fill = "#00a049", alpha = 0.6) +
-    annotate("rect", xmin = -Inf, xmax = Inf, ymin = thresholds$Seasonal, ymax = thresholds$Moderate, fill = "#fddc10", alpha = 0.6) +
-    annotate("rect", xmin = -Inf, xmax = Inf, ymin = thresholds$Moderate, ymax = thresholds$High, fill = "#FF8C00", alpha = 0.6) +
-    annotate("rect", xmin = -Inf, xmax = Inf, ymin = thresholds$High, ymax = thresholds$Extra, fill = "#FF0001", alpha = 0.6) +
-    annotate("rect", xmin = -Inf, xmax = Inf, ymin = thresholds$Extra, ymax = y_max, fill = "#9932CC", alpha = 0.6) +
+    annotate("rect", xmin = -Inf, xmax = Inf, ymin = 0, 
+             ymax = thresholds$Seasonal, 
+             fill = "#00a049", alpha = 0.6) +
+    annotate("rect", xmin = -Inf, xmax = Inf, 
+             ymin = thresholds$Seasonal, ymax = thresholds$Moderate, 
+             fill = "#fddc10", alpha = 0.6) +
+    annotate("rect", xmin = -Inf, xmax = Inf, 
+             ymin = thresholds$Moderate, ymax = thresholds$High, 
+             fill = "#FF8C00", alpha = 0.6) +
+    annotate("rect", xmin = -Inf, xmax = Inf, 
+             ymin = thresholds$High, ymax = thresholds$Extra, 
+             fill = "#FF0001", alpha = 0.6) +
+    annotate("rect", xmin = -Inf, xmax = Inf, 
+             ymin = thresholds$Extra, ymax = y_max, 
+             fill = "#9932CC", alpha = 0.6) +
     
     # Lớp dữ liệu hiện tại (Sử dụng biến legend_label_text)
-    geom_col(data = df_plot, aes(x = Week, y = Value, fill = legend_label_text), color = "black", alpha = 1, width = 1) +
+    geom_col(data = 
+               df_plot, 
+             aes(x = Week, y = Value, 
+                 fill = legend_label_text), color = "black", alpha = 1, width = 1) +
     
     # Nhãn ngưỡng
-    annotate("text", x = 54, y = thresholds$Seasonal/2, label = "Dưới\nngưỡng", color = "#006409", fontface = "bold", hjust = 0, size=6) +
-    annotate("text", x = 54, y = (thresholds$Seasonal + thresholds$Moderate)/2, label = "Thấp", color = "#8B8009", fontface = "bold", hjust = 0, size=6) +
-    annotate("text", x = 54, y = (thresholds$Moderate + thresholds$High)/2, label = "Vừa", color = "#CC5509", fontface = "bold", hjust = 0, size=6) +
-    annotate("text", x = 54, y = (thresholds$High + thresholds$Extra)/2, label = "Cao", color = "red", fontface = "bold", hjust = 0, size=6) +
-    annotate("text", x = 54, y = (thresholds$Extra + y_max)/2, label = "Rất cao", color = "#9932a9", fontface = "bold", hjust = 0, size=6) +
+    annotate("text", x = 54, 
+             y = thresholds$Seasonal/2, label = "Dưới\nngưỡng", 
+             color = "#006409", fontface = "bold", hjust = 0, size=6) +
+    annotate("text", x = 54,
+             y = (thresholds$Seasonal + thresholds$Moderate)/2, label = "Thấp", 
+             color = "#8B8009", fontface = "bold", hjust = 0, size=6) +
+    annotate("text", x = 54, 
+             y = (thresholds$Moderate + thresholds$High)/2, label = "Vừa", 
+             color = "#CC5509", fontface = "bold", hjust = 0, size=6) +
+    annotate("text", x = 54, 
+             y = (thresholds$High + thresholds$Extra)/2, label = "Cao", 
+             color = "red", fontface = "bold", hjust = 0, size=6) +
+    annotate("text", x = 54, y = (thresholds$Extra + y_max)/2, label = "Rất cao", 
+             color = "#9932a9", fontface = "bold", hjust = 0, size=6) +
     
     # Trang trí
-    scale_x_continuous(breaks = seq(1, 52, by = 4), expand = c(0, 0.4), limits = c(0, 58)) +
+    scale_x_continuous(breaks = 
+                         seq(1, 52, by = 4), expand = c(0, 0.4), limits = c(0, 58)) +
     scale_y_continuous(expand = c(0, 0), limits = c(0, y_max)) +
     # Sử dụng setNames để gán màu cho tên legend mới
     scale_fill_manual(name = "", values = setNames("#eaf5f8", legend_label_text)) +
@@ -210,6 +233,8 @@ p_trans_tcm <- plot_transmission(df_curr = df_ca_tcm,
                              disease_name = "tay chân miệng")
 print(p_trans_tcm)
 ggsave("hfmd-t-tp.svg", p_trans_tcm, width = 14, height = 7, dpi = 300)
+
+#-> Nhận định:
 
 # 2. BIỂU ĐỒ NỘI TRÚ 
 
