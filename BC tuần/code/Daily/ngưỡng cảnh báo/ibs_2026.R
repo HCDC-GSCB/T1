@@ -98,7 +98,7 @@ summary_epidemic <- function(df, res_f, res_c, remake_obj, target_year, target_w
 }
 
 
-# Tính toán cho SXH và TCM
+# Tính toán cho SXH và TCM (nhớ sửa số tuần)
 sxh_metrics <- summary_epidemic(out_f_sxh$df, out_f_sxh$result, out_c_sxh$result, 
                                 remake(df_sxh, c(2016, 2017, 2020, 2023, 2024)), 2026, 6)
 
@@ -106,7 +106,7 @@ sxh_metrics <- summary_epidemic(out_f_sxh$df, out_f_sxh$result, out_c_sxh$result
 tcm_metrics <- summary_epidemic(out_f_tcm$df, out_f_tcm$result, out_c_tcm$result, 
                                 remake(df_tcm, c(2017, 2019, 2020, 2022, 2024)), 2026, 6)
 
-# Tạo bảng
+# Tạo bảng (nhớ sửa số tuần)
 summary_table <- data.frame(
   "Chi_tieu" = c(
     "Số ca cộng dồn đến tuần 6/2026",
