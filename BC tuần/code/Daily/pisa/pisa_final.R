@@ -5,8 +5,8 @@ library(surveillance)
 library(googlesheets4)
 library(googledrive)
 library(patchwork)
-# FUNCTIONS ######
 
+# 1.FUNCTIONS ######
 # --- Hàm phụ trợ: Dịch chuyển vòng tròn (cho biểu đồ độ nặng) ---
 circular_shift <- function(x, shift) {
   n <- length(x)
@@ -20,7 +20,8 @@ calc_transmission_thresholds <- function(df, hist_years) {
   # Chuyển dữ liệu lịch sử sang dạng dài
   df_hist <- df %>%
     select(all_of(hist_years)) %>% 
-    pivot_longer(cols = everything(), names_to = "Year", values_to = "Cases") %>%
+    pivot_longer(cols = everything(), names_to = "Year", 
+                 values_to = "Cases") %>%
     mutate(Cases = replace_na(Cases, 0))
   
   # Tính các chỉ số thống kê
@@ -40,21 +41,37 @@ calc_transmission_thresholds <- function(df, hist_years) {
   )
 }
 
-# --- Hàm 2: Vẽ biểu đồ Độ lây truyền (Đã sửa đổi) ---
+# --- Hàm 2: Vẽ biểu đồ Độ lây truyền ---
 plot_transmission <- function(df_curr, thresholds, current_year_col, disease_name = "") {
   
-  # Tạo nhãn cho trục Y và Legend dựa trên tên bệnh
+    # Tạo nhãn cho trục Y và Legend dựa trên tên bệnh
   y_label_text <- paste("Số ca bệnh", disease_name)
   legend_label_text <- paste("Số mắc mới", disease_name)
-  
-  # Chuẩn bị dữ liệu năm hiện tại
+  # Tạo df_plot từ dữ liệu đầu vào
   df_plot <- df_curr %>%
     select(Week, Value = all_of(current_year_col)) %>%
-    mutate(Value = replace_na(Value, 0))
-  
+    filter(!is.na(Value)) # Bỏ các tuần chưa có số liệu
+  # Tạo bảng dữ liệu và phân loại mức độ lây truyền
+  full_data_table <- df_plot %>%
+    mutate(
+      # Thêm cột ngưỡng
+      Seasonal = thresholds$Seasonal,
+      Moderate = thresholds$Moderate,
+      High     = thresholds$High,
+      Extra    = thresholds$Extra,
+      
+      # phân loại mức độ lây truyền
+      Phan_loai = case_when(
+        Value < Seasonal ~ "Dưới ngưỡng",       
+        Value >= Seasonal & Value < Moderate ~ "Thấp",             
+        Value >= Moderate & Value < High     ~ "Vừa",              
+        Value >= High & Value < Extra    ~ "Cao",              
+        TRUE              ~ "Rất cao")) %>%
+    # Đổi tên cột Value thành năm
+    rename(!!current_year_col := Value)
   # Xác định giới hạn trục Y
-  y_max <- max(max(df_plot$Value, na.rm = TRUE), thresholds$Extra) * 1.2
-  
+  y_max <- max(max(df_plot$Value, na.rm = TRUE), 
+               thresholds$Extra) * 1.2
   # Vẽ biểu đồ
   p <- ggplot() +
     # Lớp nền (Thresholds)
@@ -78,9 +95,10 @@ plot_transmission <- function(df_curr, thresholds, current_year_col, disease_nam
     geom_col(data = 
                df_plot, 
              aes(x = Week, y = Value, 
-                 fill = legend_label_text), color = "black", alpha = 1, width = 1) +
+                 fill = legend_label_text), 
+             color = "black", alpha = 1, width = 1) +
     
-    # Nhãn ngưỡng
+    # Nhãn của ngưỡng
     annotate("text", x = 54, 
              y = thresholds$Seasonal/2, label = "Dưới\nngưỡng", 
              color = "#006409", fontface = "bold", hjust = 0, size=6) +
@@ -108,14 +126,13 @@ plot_transmission <- function(df_curr, thresholds, current_year_col, disease_nam
       axis.title = element_text(face = "bold"),
       axis.text = element_text(color = "black", size=20),
       legend.position = "bottom",
-      legend.text = element_text(size = 20)
-    )
-  
-  return(p)
+      legend.text = element_text(size = 20))
+  return(list(chart = p, data = full_data_table))
 }
 
 # --- Hàm 3: Xử lý dữ liệu Nội trú  ---
-process_inpatient_data <- function(df_inpatient, hist_years, current_year_col) {
+process_inpatient_data <- function(
+    df_inpatient, hist_years, current_year_col) {
   # 1. Xử lý lịch sử (Alignment)
   df_hist <- df_inpatient %>% 
     select(Week, all_of(hist_years)) %>% 
@@ -151,8 +168,14 @@ process_inpatient_data <- function(df_inpatient, hist_years, current_year_col) {
     replace_na(list(Inpatient = 0))
   
   df_final <- df_final %>% 
-    left_join(df_curr_inpatient, by = "Week")
-  
+    left_join(df_curr_inpatient, by = "Week") %>% 
+    mutate(
+    Phan_loai = case_when(
+      Inpatient < Limit_Low ~ "Thấp",       
+      Inpatient>=Limit_Low & Inpatient < Limit_Mod ~ "Vừa",             
+      Inpatient >=Limit_Mod & Inpatient < Limit_High ~ "Cao",              
+      Inpatient >= Limit_High   ~ " Rất cao"
+    ))
   return(df_final)
 }
 # --- Hàm 4: Vẽ biểu đồ Nội trú (Đã tối ưu dynamic legend) ---
@@ -217,6 +240,39 @@ load_data <- function(url, sheet) {
   df <- read_sheet(url, sheet = sheet)
   return(df)
 }
+# RUN SXH #########
+# --- CẤU HÌNH CHUNG ---
+file_path_sxh <- "https://docs.google.com/spreadsheets/d/13_o7NAlfBjckO6PspzITbWhlkWbfp4eKkqYCa7Dvvgg/edit?usp=sharing"
+years_hist_sxh <- c("2024", "2023", "2020", "2017", "2016")
+curr_year_col_sxh <- "2026"
+
+# 1. BIỂU ĐỒ ĐỘ LÂY TRUYỀN
+df_ca_sxh <- load_data(file_path_sxh, sheet = "ca")
+thresholds_trans_sxh <- calc_transmission_thresholds(df_ca_sxh, years_hist_sxh)
+p_trans_sxh <- plot_transmission(df_curr = df_ca_sxh, 
+                                 thresholds = thresholds_trans_sxh, 
+                                 current_year_col = curr_year_col_sxh,
+                                 disease_name = "sốt xuất huyết")
+print(p_trans_sxh)
+ggsave("dengue-t-tp.svg", p_trans_sxh, width = 14, height = 7, dpi = 300)
+# Xem phân loại mức độ lây truyền
+view(p_trans_sxh$data)
+# 2. BIỂU ĐỒ NỘI TRÚ 
+
+df_noi_sxh <- load_data(file_path_sxh, sheet = "noi")
+
+df_inpatient_ready_sxh <- process_inpatient_data(df_inpatient = df_noi_sxh, 
+                                                 hist_years = years_hist_sxh, 
+                                                 current_year_col = curr_year_col_sxh)
+
+p_inp_sxh <- plot_inpatient(df_inpatient_ready_sxh, disease_name = "sốt xuất huyết")
+
+print(p_inp_sxh)
+ggsave("dengue-s-tp.svg", p_inp_sxh, width = 14, height = 7, dpi = 300)
+# Xem phân loại mức độ nặng
+view (df_inpatient_ready_sxh)
+
+
 # RUN TCM #########
 
 # --- CẤU HÌNH CHUNG ---
@@ -234,7 +290,8 @@ p_trans_tcm <- plot_transmission(df_curr = df_ca_tcm,
 print(p_trans_tcm)
 ggsave("hfmd-t-tp.svg", p_trans_tcm, width = 14, height = 7, dpi = 300)
 
-#-> Nhận định:
+## Đánh giá mức độ lây truyền: xem kết quả trả ra tại cột phân loại
+view(p_trans_tcm$data)
 
 # 2. BIỂU ĐỒ NỘI TRÚ 
 
@@ -248,38 +305,11 @@ p_inp_tcm <- plot_inpatient(df_inpatient_ready_tcm, disease_name = "tay chân mi
 
 print(p_inp_tcm)
 ggsave("hfmd-s-tp.svg", p_inp_tcm, width = 14, height = 7, dpi = 300)
-
-# RUN SXH #########
-# --- CẤU HÌNH CHUNG ---
-file_path_sxh <- "https://docs.google.com/spreadsheets/d/13_o7NAlfBjckO6PspzITbWhlkWbfp4eKkqYCa7Dvvgg/edit?usp=sharing"
-years_hist_sxh <- c("2024", "2023", "2020", "2017", "2016")
-curr_year_col_sxh <- "2026"
-
-# 1. BIỂU ĐỒ ĐỘ LÂY TRUYỀN
-df_ca_sxh <- load_data(file_path_sxh, sheet = "ca")
-thresholds_trans_sxh <- calc_transmission_thresholds(df_ca_sxh, years_hist_sxh)
-p_trans_sxh <- plot_transmission(df_curr = df_ca_sxh, 
-                             thresholds = thresholds_trans_sxh, 
-                             current_year_col = curr_year_col_sxh,
-                             disease_name = "sốt xuất huyết")
-print(p_trans_sxh)
-ggsave("dengue-t-tp.svg", p_trans_sxh, width = 14, height = 7, dpi = 300)
-
-# 2. BIỂU ĐỒ NỘI TRÚ 
-
-df_noi_sxh <- load_data(file_path_sxh, sheet = "noi")
-
-df_inpatient_ready_sxh <- process_inpatient_data(df_inpatient = df_noi_sxh, 
-                                             hist_years = years_hist_sxh, 
-                                             current_year_col = curr_year_col_sxh)
-
-p_inp_sxh <- plot_inpatient(df_inpatient_ready_sxh, disease_name = "sốt xuất huyết")
-
-print(p_inp_sxh)
-ggsave("dengue-s-tp.svg", p_inp_sxh, width = 14, height = 7, dpi = 300)
+##Xem phân loại
+view(df_inpatient_ready_tcm)
 
 
-# CA NẶNG ################
+# PHỤ LỤC 2: MÔ TẢ CA NẶNG #####
 process_severe_simple <- function(df, hist_years, current_year_col) {
   
   # Bước 1: Tính toán Trung bình và SD từ các năm lịch sử theo từng tuần
