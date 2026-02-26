@@ -381,6 +381,21 @@ plot_severe_simple <- function(df_data, disease_name = "", y_lab = "Số ca nặ
 # 3. THỰC THI (CHẠY CHO CẢ 2 BỆNH)
 # --- CẤU HÌNH ---
 curr_year_col <- "2026"
+# --- B. SỐT XUẤT HUYẾT (DENGUE) ---
+file_path_dengue <- "https://docs.google.com/spreadsheets/d/13_o7NAlfBjckO6PspzITbWhlkWbfp4eKkqYCa7Dvvgg/edit?usp=sharing"
+years_hist_dengue <- c("2024", "2023", "2020", "2017", "2016")
+
+df_nang_dengue <- load_data(file_path_dengue, sheet = "nang")
+df_ready_dengue <- process_severe_simple(df_nang_dengue, years_hist_dengue, curr_year_col)
+
+p_dengue <- plot_severe_simple(df_ready_dengue, 
+                               disease_name = "sốt xuất huyết", 
+                               y_lab = "Số ca nặng SXH")
+print(p_dengue)
+ggsave("dengue_severe_simple.svg", p_dengue, width = 10, height = 6)
+## so sánh số ca SXH nặng so với tuần trước
+df_ready_dengue  %>% mutate(
+  ss_canang_dengue = (Current - lag(Current)) / lag(Current) * 100)
 
 # --- A. TAY CHÂN MIỆNG (HFMD) ---
 file_path_hfmd <- "https://docs.google.com/spreadsheets/d/1jSAuGFUkcHBL5iie999qn7ClW2dTYB3AOSOaRwOBCGY/edit?gid=552422139#gid=552422139"
@@ -395,17 +410,9 @@ p_hfmd <- plot_severe_simple(df_ready_hfmd,
 
 print(p_hfmd)
 ggsave("hfmd_severe_simple.svg", p_hfmd, width = 10, height = 6)
+## so sánh số ca TCM nặng so với tuần trước
+df_ready_hfmd %>% mutate(
+  ss_canang_hfmd = (Current - lag(Current)) / lag(Current) * 100)
 
 
-# --- B. SỐT XUẤT HUYẾT (DENGUE) ---
-file_path_dengue <- "https://docs.google.com/spreadsheets/d/13_o7NAlfBjckO6PspzITbWhlkWbfp4eKkqYCa7Dvvgg/edit?usp=sharing"
-years_hist_dengue <- c("2024", "2023", "2020", "2017", "2016")
 
-df_nang_dengue <- load_data(file_path_dengue, sheet = "nang")
-df_ready_dengue <- process_severe_simple(df_nang_dengue, years_hist_dengue, curr_year_col)
-
-p_dengue <- plot_severe_simple(df_ready_dengue, 
-                               disease_name = "sốt xuất huyết", 
-                               y_lab = "Số ca nặng SXH")
-print(p_dengue)
-ggsave("dengue_severe_simple.svg", p_dengue, width = 10, height = 6)
