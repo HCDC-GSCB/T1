@@ -85,7 +85,7 @@ data_tcm <- data %>%filter (chandoan=="Tay - chân - miệng") %>%
 ## Khai báo tháng và năm tính toán
 ```{r}
 # Khai báo tháng và năm tính toán
-month_nv <- 9 #đều chỉnh lại tháng báo cáo nhé     
+month_nv <- 2 #đều chỉnh lại tháng báo cáo nhé     
 year_nv <- 2026
 # điều kiện (không chỉnh)
 if (month_nv == 1) {
@@ -233,8 +233,8 @@ row_3 <- data_sxh %>%
 bang_hoan_chinh <- bind_rows(row_1, row_2, row_3) %>%
   mutate(
     # Tính phần trăm
-    `% Nặng/Mắc` = round((Nang / Mac) * 100,1),
-    `% Chết/Mắc` = round((Chet / Mac) * 100,1)
+    `% Nặng/Mắc` = round((Nang / Mac) * 100,3),
+    `% Chết/Mắc` = round((Chet / Mac) * 100,3)
   ) %>%
   # Sắp xếp cột
   select(Label, Mac, Nang, Chet, `% Nặng/Mắc`, `% Chết/Mắc`)
@@ -376,7 +376,7 @@ plot_data_tcm <- plot_data_tcm %>%
       TRUE ~ y_nhan
     )
   )
-unique(data_tcm$phando)
+
 # VẼ BIỂU ĐỒ
 ggplot(plot_data_tcm, aes(x = 1, y = tongca, fill = phando)) + 
   # 1. Vẽ bánh
