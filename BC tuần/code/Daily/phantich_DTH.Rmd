@@ -26,7 +26,7 @@ library(DT)
 #Gọi file
 Gọi danh sách ca theo tuần
 ```{r}
-data <- read_excel("C:/Users/ltkdi/OneDrive/GSCB-HCDC/HCDC/Reports/Week report/Data_BTN_Khoa GSCB/data/tuan 05.xlsx"
+data <- read_rds("C:/Users/ltkdi/OneDrive/GSCB-HCDC/HCDC/Reports/Week report/Data_BTN_Khoa GSCB/data/tuan 9.rds"
                    )
 getwd()
 data<-data.frame(data)
@@ -85,7 +85,7 @@ data_tcm <- data %>%filter (chandoan=="Tay - chân - miệng") %>%
 ## Khai báo tháng và năm tính toán
 ```{r}
 # Khai báo tháng và năm tính toán
-month_nv <- 1      
+month_nv <- 9 #đều chỉnh lại tháng báo cáo nhé     
 year_nv <- 2026
 # điều kiện (không chỉnh)
 if (month_nv == 1) {
